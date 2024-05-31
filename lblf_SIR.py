@@ -1,83 +1,75 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-class SIRModel:
-    def __init__(self, S0, I0, R0, transitions, period, w_0, elit_0, mu, a_0, a_max, gamma, delta, tau):
-        # Initialize populations as proportions
-        self.S = np.zeros((len(period),))
-        self.I = np.zeros((len(period),))
-        self.R = np.zeros((len(period),))
-        self.elit = np.zeros((len(period),))
-        self.epsln = np.zeros((len(period),))
-        self.alpha_rec = np.zeros((len(period),))
+class ExtendedSIRModel:
+    def __init__(self, period, transitions, initial_states, w_0, elit_0, parameters):
+        self.period = np.array(period)
+        self.transitions = np.array(transitions)
+        self.S = np.zeros_like(self.period, dtype=float)
+        self.I = np.zeros_like(self.period, dtype=float)
+        self.R = np.zeros_like(self.period, dtype=float)
+        self.elit = np.zeros_like(self.period, dtype=float)
+        self.alpha_rec = np.zeros_like(self.period, dtype=float)
+        self.w = np.interp(self.period, self.transitions[:, 0], self.transitions[:, 1])
+        self.w_0 = w_0  # Initialize w_0 as a class attribute
         
-        # Initial conditions ensuring they sum to 1
-        total = S0 + I0 + R0
-        self.S[0] = S0 / total
-        self.I[0] = I0 / total
-        self.R[0] = R0 / total
+        # Parameters
+        self.mu = parameters['mu']
+        self.a_0 = parameters['a_0']
+        self.a_w = parameters['a_w']
+        self.a_e = parameters['a_e']
+        self.sigma_0 = parameters['sigma_0']
+        self.gamma = parameters['gamma']
+        self.delta = parameters['delta']
+        self.tau = parameters['tau']
+        self.max_elit = parameters['max_elit']
 
-        self.transitions = transitions
-        self.period = period
-        self.w_0 = w_0
-        self.elit_0 = elit_0
-        self.mu = mu
-        self.a_0 = a_0
-        self.a_max = a_max
-        self.gamma = gamma
-        self.delta = delta
-        self.tau = tau
+        # Initial Conditions
+        self.S[0], self.I[0], self.R[0], self.elit[0] = initial_states
+
 
     def simulate(self):
         for t in range(1, len(self.period)):
-            # Interpolating the wage at this time point
-            w = np.interp(self.period[t], self.transitions[:, 0], self.transitions[:, 1])
-            alpha = self.a_0 + (self.w_0 - w) + 0.5 * (self.elit[t-1] - self.elit_0) # Radicalization factor
-
-            # Support Validation
-            delta_S = max(0, min(self.S[t-1], self.S[t-1] * alpha))
-            delta_I = max(0, min(self.I[t-1], self.I[t-1] * (1 - self.delta)))
-            delta_R = self.I[t-1] * self.delta
+            # Update elites based on relative income and previous elite level
+            self.elit[t] = max(0, min(self.max_elit, self.elit[t-1] + self.mu * (self.w_0 - self.w[t]) / self.w[t]))
             
-            self.S[t] = self.S[t-1] - delta_S
-            self.I[t] = self.I[t-1] + delta_S - delta_R
-            self.R[t] = self.R[t-1] + delta_R
-
-            # Normalization
-            total = self.S[t] + self.I[t] + self.R[t]
-            self.S[t] /= total
-            self.I[t] /= total
-            self.R[t] /= total
-
-            # Updating elite dynamics and economic factors
-            self.elit[t] = max(0, min(1, self.elit[t-1] + self.mu * (self.w_0 - w) / w))
-            self.epsln[t] = (1 - w) / self.elit[t]
+            # Calculate radicalization forces
+            alpha = self.a_0 + self.a_w * (self.w_0 - self.w[t]) + self.a_e * (self.elit[t] - self.elit[0])
             self.alpha_rec[t] = alpha
+            
+            # SIR dynamics with social influence
+            sigma = max(0, min(1, (alpha - self.gamma * self.R[t-1]) * self.I[t-1] + self.sigma_0))
+            rho = self.delta * self.I[t - self.tau] if t > self.tau else 0
+            
+            # Update SIR model
+            self.S[t] = self.S[t-1] - sigma
+            self.I[t] = self.I[t-1] + sigma - rho
+            self.R[t] = self.R[t-1] + rho
+            
 
     def plot(self):
-        plt.figure(figsize=(10, 5))
+        plt.figure(figsize=(12, 6))
         plt.plot(self.period, self.S, label='Susceptible')
         plt.plot(self.period, self.I, label='Infected')
         plt.plot(self.period, self.R, label='Recovered')
+        plt.plot(self.period, self.elit, label='Elite fraction', linestyle='--')
         plt.xlabel('Year')
-        plt.ylabel('Population Fraction')
-        plt.title('SIR Model Simulation with Socio-political Factors')
+        plt.ylabel('Fraction of Population')
+        plt.title('Extended SIR Model with Socio-political Dynamics')
         plt.legend()
+        plt.grid(True)
         plt.show()
 
-# Example 
-S0, I0, R0 = 0.9, 0.1, 0.0
-transitions = np.array([[1810, 0.90], [1840, 0.90], [1850, 0.75], [1990, 0.75]])
-period = np.arange(1800, 2000)
-w_0 = 0.90
-elit_0 = 0.01
-mu = 0.3
-a_0 = 0.1
-a_max = 1
-gamma = 1
-delta = 0.5
-tau = 10
+# Parameters and initial conditions setup
+period = np.arange(1800, 2101)  # From 1800 to 2100
+transitions = [(1810, 0.9), (1840, 0.9), (1850, 0.75), (1990, 0.75), (2020, 0.7), (2050, 0.9)]
+initial_states = (0.9, 0.01, 0.0, 0.01)  # Initial state of S, I, R, and initial elite fraction
+parameters = {
+    'mu': 0.01, 'a_0': 0.1, 'a_w': 1.0, 'a_e': 0.5, 
+    'sigma_0': 0.0005, 'gamma': 1, 'delta': 0.5, 'tau': 10, 'max_elit': 0.03
+}
 
-model = SIRModel(S0, I0, R0, transitions, period, w_0, elit_0, mu, a_0, a_max, gamma, delta, tau)
+# Create and run the model
+model = ExtendedSIRModel(period, transitions, initial_states, 0.9, 0.01, parameters)
 model.simulate()
 model.plot()
