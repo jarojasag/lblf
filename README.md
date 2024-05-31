@@ -1,7 +1,7 @@
 # Looking Back to Look Forward
-## SIR Model with DST Forcing
+## SIR Model 
 
-This repository contains a Python implementation of a SIR (Susceptible-Infected-Recovered) model with Demographic-Structural Theory (DST) forcing. The model simulates the effects of relative income, elite overproduction, and demographic pressures on societal stability.
+This repository contains a Python implementation of a SIR (Susceptible-Infected-Recovered) model for political radicalization. The model simulates the effects of relative income, elite overproduction, and demographic pressures on societal stability.
 
 ### Description
 
