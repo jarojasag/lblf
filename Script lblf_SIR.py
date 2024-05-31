@@ -121,8 +121,9 @@ R[:, 0] = R_0 / t_ages
 brown = '#A52A2A'
 nice_green = '#00BFFF'
 
-fig1, ax1 = plt.subplots()
-fig2, ax2 = plt.subplots()
+# Adjust figure size
+fig1, ax1 = plt.subplots(figsize=(12, 8))
+fig2, ax2 = plt.subplots(figsize=(12, 8))
 
 for y_i in SIR_starts:
     S[:, 0] = S0[:, y_i]
@@ -190,7 +191,7 @@ for y_i in SIR_starts:
     
     ax1.plot(period, alpha_rec, color=nice_green, linestyle=ls_psi, linewidth=lw_psi, label='(\\alpha) elite forcing (\\Psi)')
     
-    ax1.legend(loc='best', fontsize=12)
+    ax1.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize=12)
     ax1.set_xlabel('Year', fontsize=12)
     ax1.grid(True)
     ax1.set_ylim([-0.1, 2.5])
@@ -201,16 +202,17 @@ for y_i in SIR_starts:
     this_year = 2020
     if this_year in period:
         ax1.axvline(x=this_year, color='k', linestyle='--')
-    
-    plt.pause(0.1)  # Force figure to display
+
 
     ax2.plot(period, I_sum, color='r', linestyle=ls, label='(I) Radical fraction')
     ax2.plot(period, R_sum, color='k', linestyle=ls, label='(R) Moderate fraction')
     
-    ax2.legend(loc='best', fontsize=12)
+    ax2.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize=12)
     ax2.set_xlabel('Year', fontsize=12)
     ax2.set_ylabel('Fraction', fontsize=12)
     ax2.grid(True)
+    ax2.set_ylim([-0.1, 1.0]) 
+    ax2.set_xlim([period[0], period[-1]])
     ax2.set_title(f'SIR: \\sigma_0: {sigma_0:.4f} \\alpha = {a_0:.2f} \\gamma = {gamma:.2f} \\delta = {delta:.2f} \\tau = {tau:.1f} years', fontsize=12)
     
     plt.pause(0.1)
