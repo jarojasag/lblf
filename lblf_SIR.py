@@ -5,7 +5,7 @@ import pickle
 import sys
 
 class SIRModel:
-    def __init__(self, pt_original=False, initialize_SIR=False, show_SIR_variation=True, enable_SDT=True):
+    def __init__(self, pt_original=False, initialize_SIR=False, show_SIR_variation=True, enable_SDT=True, verbose=True):
         """
         Initialize the SIRModel with configuration settings.
 
@@ -18,6 +18,7 @@ class SIRModel:
         self.initialize_SIR = initialize_SIR
         self.show_SIR_variation = show_SIR_variation
         self.enable_SDT = enable_SDT
+        self.verbose = verbose
 
         # Model parameters
         self.T_ages = 45  # Number of age classes
@@ -84,19 +85,14 @@ class SIRModel:
             eyr, syr = self.transitions[i, 0], self.transitions[i - 1, 0]
             delta_t = eyr - syr
             change = 100 * (self.transitions[i, 1] - self.transitions[i - 1, 1]) / delta_t
-            print(f'{int(syr)}-{int(eyr)}: {int(delta_t)} years {change:.1f}%')
+            if self.verbose:
+                print(f'{int(syr)}-{int(eyr)}: {int(delta_t)} years {change:.1f}%')
 
         # Expectation wealth per elite when relative wage is w_0
         self.eps_factor = (1 - self.w_0) / self.e_0
 
-        # Track the relative proportion of population that are elite
-        self.elit = np.full(len(self.period), np.nan)
-        self.elit[0] = self.e_0  # Assume initial proportion of elite
-        self.epsln = np.full(len(self.period), np.nan)
-        self.epsln[0] = self.eps_factor * (1 - self.w[0]) / self.elit[0]
-
-        # Create the SIR matrices to track proportions per age class over all the time periods
-        self.S, self.I, self.R = np.zeros((self.T_ages, len(self.period))), np.zeros((self.T_ages, len(self.period))), np.zeros((self.T_ages, len(self.period)))
+        # Initialize results storage
+        self.results = []
 
     def initialize_parameters(self):
         """Initialize SIR constants and parameters."""
@@ -116,79 +112,83 @@ class SIRModel:
         except:
             raise RuntimeError("Unable to load initial_SIR.pkl!")
 
+    def simulate(self, S0, I0, R0, w):
+        """Run the SIR model simulation and return the results."""
+        S = np.zeros((self.T_ages, len(self.period)))
+        I = np.zeros((self.T_ages, len(self.period)))
+        R = np.zeros((self.T_ages, len(self.period)))
+
+        S[:, 0], I[:, 0], R[:, 0] = S0, I0, R0
+
+        S_sum, I_sum, R_sum, alpha_rec = [np.full(len(self.period), np.nan) for _ in range(4)]
+        S_sum[0], I_sum[0], R_sum[0] = np.sum(S[:, 0]), np.sum(I[:, 0]), np.sum(R[:, 0])
+
+        # Initialize local copies of elit and epsln
+        elit = np.full(len(self.period), np.nan)
+        elit[0] = self.e_0  # Assume initial proportion of elite
+        epsln = np.full(len(self.period), np.nan)
+        epsln[0] = self.eps_factor * (1 - w[0]) / elit[0]
+
+        for t in range(len(self.period) - 1):
+            t1 = t + 1
+            # Update elit[t1]
+            if self.pt_original:
+                elit[t1] = elit[t] + self.mu_0 * (self.w_0 - w[t]) / w[t]
+                elit[t1] -= (elit[t1] - self.e_0) * R_sum[t1]
+            else:
+                elit[t1] = elit[t] + self.mu_0 * (self.w_0 - w[t]) / w[t] - (elit[t] - self.e_0) * R_sum[t]
+            # Update epsln
+            epsln[t1] = self.eps_factor * (1 - w[t1]) / elit[t1]
+
+            # Calculate alpha
+            alpha = np.clip(self.a_0 + self.a_w * (self.w_0 - w[t1]) + self.a_e * (elit[t1] - self.e_0) + self.YB_A20[t1], self.a_0, self.a_max)
+            # Calculate sigma and rho
+            sigma = np.clip((alpha - self.gamma * np.sum(R[:, t])) * np.sum(I[:, t]) + self.sigma_0, 0, 1)
+            rho = np.clip(self.delta * np.sum(I[:, t - self.tau]) if t > self.tau else 0, 0, 1)
+            alpha_rec[t1] = alpha
+
+            # Update S, I, R
+            S[0, t1] = 1 / self.T_ages
+            for age in range(self.T_ages - 1):
+                age1 = age + 1
+                S[age1, t1] = (1 - sigma) * S[age, t]
+                I[age1, t1] = (1 - rho) * I[age, t] + sigma * S[age, t]
+                R[age1, t1] = R[age, t] + rho * I[age, t]
+            S_sum[t1], I_sum[t1], R_sum[t1] = np.sum(S[:, t1]), np.sum(I[:, t1]), np.sum(R[:, t1])
+            if self.pt_original:
+                elit[t1] -= (elit[t1] - self.e_0) * R_sum[t1]
+
+        return S, I, R, S_sum, I_sum, R_sum, alpha_rec, elit, epsln
+
     def run_model(self):
         """Run the SIR model simulation."""
+        self.results = []
         for y_i in self.SIR_starts:
             y_i = int(y_i)  # Ensure index
-            self.S[:, 0], self.I[:, 0], self.R[:, 0] = self.S0[:, y_i], self.I0[:, y_i], self.R0[:, y_i]
-
-            S_sum, I_sum, R_sum, alpha_rec = [np.full(len(self.period), np.nan) for _ in range(4)]
-            S_sum[0], I_sum[0], R_sum[0] = np.sum(self.S[:, 0]), np.sum(self.I[:, 0]), np.sum(self.R[:, 0])
-
-            for t in range(len(self.period) - 1):
-                t1 = t + 1
-                if self.pt_original:
-                    self.elit[t] + self.mu_0 * (self.w_0 - self.w[t]) / self.w[t]  # Update relative elite numbers
-                else:
-                    self.elit[t1] = self.elit[t] + self.mu_0 * (self.w_0 - self.w[t]) / self.w[t] - (self.elit[t] - self.e_0) * R_sum[t]  # Update relative elite numbers
-
-                self.epsln[t1] = self.eps_factor * (1 - self.w[t1]) / self.elit[t1]
-                alpha = np.clip(self.a_0 + self.a_w * (self.w_0 - self.w[t1]) + self.a_e * (self.elit[t1] - self.e_0) + self.YB_A20[t1], self.a_0, self.a_max)
-                sigma = np.clip((alpha - self.gamma * np.sum(self.R[:, t])) * np.sum(self.I[:, t]) + self.sigma_0, 0, 1)
-                rho = np.clip(self.delta * np.sum(self.I[:, t - self.tau]) if t > self.tau else 0, 0, 1)
-                alpha_rec[t1] = alpha  # Record alpha
-
-                self.S[0, t1] = 1 / self.T_ages
-                for age in range(self.T_ages - 1):
-                    age1 = age + 1
-                    self.S[age1, t1] = (1 - sigma) * self.S[age, t]
-                    self.I[age1, t1] = (1 - rho) * self.I[age, t] + sigma * self.S[age, t]
-                    self.R[age1, t1] = self.R[age, t] + rho * self.I[age, t]
-
-                S_sum[t1], I_sum[t1], R_sum[t1] = np.sum(self.S[:, t1]), np.sum(self.I[:, t1]), np.sum(self.R[:, t1])
-                if self.pt_original:
-                    self.elit[t1] -= (self.elit[t1] - self.e_0) * R_sum[t1]
+            S0, I0, R0 = self.S0[:, y_i], self.I0[:, y_i], self.R0[:, y_i]
+            # Use local w to prevent unintended modifications
+            w = self.w.copy()
+            S, I, R, S_sum, I_sum, R_sum, alpha_rec, elit, epsln = self.simulate(S0, I0, R0, w)
+            # Store results
+            self.results.append({'S': S, 'I': I, 'R': R, 'S_sum': S_sum, 'I_sum': I_sum,
+                                 'R_sum': R_sum, 'alpha_rec': alpha_rec, 'elit': elit, 'epsln': epsln, 'w': w})
 
     def plot_results(self):
         """Plot the results of the SIR model simulation."""
         fig1, ax1 = plt.subplots(figsize=(12, 8))
         brown, nice_green = '#A52A2A', '#00BFFF'
 
-        for y_i in self.SIR_starts:
-            y_i = int(y_i)  # Ensure index
-            self.S[:, 0], self.I[:, 0], self.R[:, 0] = self.S0[:, y_i], self.I0[:, y_i], self.R0[:, y_i]
-
-            S_sum, I_sum, R_sum, alpha_rec = [np.full(len(self.period), np.nan) for _ in range(4)]
-            S_sum[0], I_sum[0], R_sum[0] = np.sum(self.S[:, 0]), np.sum(self.I[:, 0]), np.sum(self.R[:, 0])
-
-            for t in range(len(self.period) - 1):
-                t1 = t + 1
-                if self.pt_original:
-                    self.elit[t] + self.mu_0 * (self.w_0 - self.w[t]) / self.w[t]
-                else:
-                    self.elit[t1] = self.elit[t] + self.mu_0 * (self.w_0 - self.w[t]) / self.w[t] - (self.elit[t] - self.e_0) * R_sum[t]
-
-                self.epsln[t1] = self.eps_factor * (1 - self.w[t1]) / self.elit[t1]
-                alpha = np.clip(self.a_0 + self.a_w * (self.w_0 - self.w[t1]) + self.a_e * (self.elit[t1] - self.e_0) + self.YB_A20[t1], self.a_0, self.a_max)
-                sigma = np.clip((alpha - self.gamma * np.sum(self.R[:, t])) * np.sum(self.I[:, t]) + self.sigma_0, 0, 1)
-                rho = np.clip(self.delta * np.sum(self.I[:, t - self.tau]) if t > self.tau else 0, 0, 1)
-                alpha_rec[t1] = alpha
-
-                self.S[0, t1] = 1 / self.T_ages
-                for age in range(self.T_ages - 1):
-                    age1 = age + 1
-                    self.S[age1, t1] = (1 - sigma) * self.S[age, t]
-                    self.I[age1, t1] = (1 - rho) * self.I[age, t] + sigma * self.S[age, t]
-                    self.R[age1, t1] = self.R[age, t] + rho * self.I[age, t]
-
-                S_sum[t1], I_sum[t1], R_sum[t1] = np.sum(self.S[:, t1]), np.sum(self.I[:, t1]), np.sum(self.R[:, t1])
-                if self.pt_original:
-                    self.elit[t1] -= (self.elit[t1] - self.e_0) * R_sum[t1]
+        for result in self.results:
+            S_sum = result['S_sum']
+            I_sum = result['I_sum']
+            R_sum = result['R_sum']
+            alpha_rec = result['alpha_rec']
+            elit = result['elit']
 
             if self.enable_SDT:
                 w_ax1, = ax1.plot(self.period, self.w, color=brown, linestyle='-', linewidth=2, label='(w) Relative income')
                 YB_ax1, = ax1.plot(self.period, self.YB_A20, color='k', linestyle='-.', linewidth=2, label=f'Youth bulge {self.YB_year}')
-                elit_ax1, = ax1.plot(self.period, self.elit * 100, color='b', linestyle='-', label=f'(e*100) Elite fraction of population')
+                elit_ax1, = ax1.plot(self.period, elit * 100, color='b', linestyle='-', label=f'(e*100) Elite fraction of population')
                 alpha_ax1, = ax1.plot(self.period, alpha_rec, color=nice_green, linestyle='--', linewidth=2, label=r'($\alpha$) radicalization rate')
 
                 if self.show_year in self.period:
@@ -206,27 +206,28 @@ class SIRModel:
         ax1.set_title(f'US: Mockup historical w; fast recovery 2025 {self.show_SIR_variation} incr: {self.SIR_increment}')
         plt.show()
 
-
-    def introduce_shock(self, shock_type, shock_year, shock_magnitude):
+    def introduce_shock(self, w, shock_type, shock_year, shock_magnitude):
         """
         Introduce a shock to either elite numbers or wages.
 
+        :param w: The wage array to modify
         :param shock_type: Type of shock ('elite' or 'wage')
         :param shock_year: Year when the shock occurs
         :param shock_magnitude: Magnitude of the shock
+        :return: Modified wage array
         """
-        if shock_type not in ['elite', 'wage']:
-            raise ValueError("Invalid shock_type. Must be 'elite' or 'wage'.")
-
         shock_index = np.where(self.period == shock_year)[0]
         if len(shock_index) == 0:
             raise ValueError("Invalid shock_year. Year not found in the period range.")
         shock_index = shock_index[0]
 
-        if shock_type == 'elite':
-            self.elit[shock_index:] += shock_magnitude
-        elif shock_type == 'wage':
-            self.w[shock_index:] += shock_magnitude
+        if shock_type == 'wage':
+            w[shock_index:] += shock_magnitude
+        elif shock_type == 'elite':
+            pass  # Handle elite shock
+        else:
+            raise ValueError("Invalid shock_type. Must be 'elite' or 'wage'.")
+        return w
 
     def compare_with_shock(self, shock_type, shock_year, shock_magnitude):
         """
@@ -237,35 +238,38 @@ class SIRModel:
         :param shock_magnitude: Magnitude of the shock
         """
         # Run the model without the shock
-        self.run_model()
-        original_S = self.S.copy()
-        original_I = self.I.copy()
-        original_R = self.R.copy()
-        original_elit = self.elit.copy()
-        original_w = self.w.copy()
+        y_i = int(self.SIR_starts[0])  # Assuming only one y_i
+        S0, I0, R0 = self.S0[:, y_i], self.I0[:, y_i], self.R0[:, y_i]
+        w_original = self.w.copy()
+        S, I, R, S_sum, I_sum, R_sum, alpha_rec, elit, epsln = self.simulate(S0, I0, R0, w_original)
+        original_results = {'S_sum': S_sum, 'I_sum': I_sum, 'R_sum': R_sum, 'elit': elit, 'w': w_original}
 
-        # Introduce the shock and run the model again
-        self.introduce_shock(shock_type, shock_year, shock_magnitude)
-        self.run_model()
+        # Introduce the shock
+        w_shocked = self.w.copy()
+        w_shocked = self.introduce_shock(w_shocked, shock_type, shock_year, shock_magnitude)
+
+        # Run the model with the shocked w
+        S, I, R, S_sum, I_sum, R_sum, alpha_rec, elit, epsln = self.simulate(S0, I0, R0, w_shocked)
+        shocked_results = {'S_sum': S_sum, 'I_sum': I_sum, 'R_sum': R_sum, 'elit': elit, 'w': w_shocked}
 
         # Plot the results for comparison
         fig, ax = plt.subplots(2, 1, figsize=(12, 16))
         brown, nice_green = '#A52A2A', '#00BFFF'
 
-        ax[0].plot(self.period, original_I.sum(axis=0), color='r', linestyle='-', label='Radical fraction (no shock)')
-        ax[0].plot(self.period, self.I.sum(axis=0), color='r', linestyle='--', label='Radical fraction (with shock)')
-        ax[0].plot(self.period, original_R.sum(axis=0), color='k', linestyle='-', label='Moderate fraction (no shock)')
-        ax[0].plot(self.period, self.R.sum(axis=0), color='k', linestyle='--', label='Moderate fraction (with shock)')
+        ax[0].plot(self.period, original_results['I_sum'], color='r', linestyle='-', label='Radical fraction (no shock)')
+        ax[0].plot(self.period, shocked_results['I_sum'], color='r', linestyle='--', label='Radical fraction (with shock)')
+        ax[0].plot(self.period, original_results['R_sum'], color='k', linestyle='-', label='Moderate fraction (no shock)')
+        ax[0].plot(self.period, shocked_results['R_sum'], color='k', linestyle='--', label='Moderate fraction (with shock)')
         ax[0].legend()
         ax[0].set_xlabel('Year')
         ax[0].set_ylabel('Fraction')
         ax[0].grid(True)
 
         if self.enable_SDT:
-            ax[1].plot(self.period, original_w, color=brown, linestyle='-', linewidth=2, label='Relative income (no shock)')
-            ax[1].plot(self.period, self.w, color=brown, linestyle='--', linewidth=2, label='Relative income (with shock)')
-            ax[1].plot(self.period, original_elit * 100, color='b', linestyle='-', label='Elite fraction (no shock)')
-            ax[1].plot(self.period, self.elit * 100, color='b', linestyle='--', label='Elite fraction (with shock)')
+            ax[1].plot(self.period, original_results['w'], color=brown, linestyle='-', linewidth=2, label='Relative income (no shock)')
+            ax[1].plot(self.period, shocked_results['w'], color=brown, linestyle='--', linewidth=2, label='Relative income (with shock)')
+            ax[1].plot(self.period, original_results['elit'] * 100, color='b', linestyle='-', label='Elite fraction (no shock)')
+            ax[1].plot(self.period, shocked_results['elit'] * 100, color='b', linestyle='--', label='Elite fraction (with shock)')
             ax[1].legend()
             ax[1].set_xlabel('Year')
             ax[1].set_ylabel('Values')
@@ -295,7 +299,7 @@ class SIRModel:
         return data_tuple
 
 
-### Example Run
+### Example 
 model = SIRModel(initialize_SIR=False, show_SIR_variation=False, enable_SDT=True)
 model.run_model()
 model.plot_results()

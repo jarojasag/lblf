@@ -1,97 +1,182 @@
+from lblf_SIR import SIRModel
 import numpy as np
-from lblf import SIRModel
-from ema_workbench import (Model, RealParameter, ScalarOutcome, SequentialEvaluator, Policy)
-from ema_workbench.em_framework.optimization import (HyperVolume, EpsilonProgress)
+import matplotlib.pyplot as plt
+from ema_workbench import (Model, RealParameter, ScalarOutcome, ema_logging, Constant)
+from ema_workbench.em_framework import SequentialEvaluator
+from ema_workbench.em_framework.optimization import (EpsilonProgress, HyperVolume)
+from ema_workbench.analysis import parcoords
+import pandas as pd
 
-class PolicySIR:
-    def __init__(self, sir_model, nw, na, wr, Ir_a):
-        """
-        Initialize the PolicySIR class with the SIR model and policy parameters.
+#  logging
+ema_logging.log_to_stderr(ema_logging.INFO)
 
-        :param sir_model: Instance of the SIRModel class
-        :param nw: Coefficient for the income adjustment controller
-        :param na: Coefficient for the radicalization adjustment controller
-        :param wr: Target level for the income available to workers
-        :param Ir_a: Target level for tolerable radicalization in cohort a
-        """
-        self.sir_model = sir_model
-        self.nw = nw
-        self.na = na
-        self.wr = wr
-        self.Ir_a = Ir_a
-        self.Dw = np.zeros(len(self.sir_model.period))  # Policy adjustment array
+class PolicySIRModel(SIRModel):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Initialize policy parameters
+        self.eta_w = 0.0  # Sensitivity of the controller to w_T - w(t)
+        self.eta_a = np.zeros(self.T_ages)  # Sensitivity to I_a(t) - I_Ta
+        self.w_T = 0.0  # Target level for income available to workers
+        self.I_Ta = np.zeros(self.T_ages)  # Target level for tolerable radicalization in cohort a
+        self.policy_cost = 0.0  # Initialize policy cost
+        self.delta_w = np.zeros(len(self.period))  # Policy adjustment over time
 
-    def pid_controller(self):
-        """
-        Apply the PID controller formalism to adjust relative income.
-        """
-        for t in range(len(self.sir_model.period)):
-            Ia_t = np.sum(self.sir_model.I[:, t])  # Number of radicalized people in cohort at time t
-            self.Dw[t] = self.nw * max(self.wr - self.sir_model.w[t], 0) + self.na * max(Ia_t - self.Ir_a, 0)
-            self.sir_model.w[t] += self.Dw[t]
+    def set_policy_parameters(self, eta_w, eta_a, w_T, I_Ta):
+        """Policy parameters."""
+        self.eta_w = eta_w
+        self.eta_a = np.array(eta_a)
+        self.w_T = w_T
+        self.I_Ta = np.array(I_Ta)
 
-    def policy_cost(self):
-        """
-        Calculate the cost of the policy adjustments.
+    def simulate(self, S0, I0, R0, w):
+        """Run the SIR model simulation with policy adjustments."""
+        S = np.zeros((self.T_ages, len(self.period)))
+        I = np.zeros((self.T_ages, len(self.period)))
+        R = np.zeros((self.T_ages, len(self.period)))
 
-        :return: Total policy cost
-        """
-        return np.sum(self.Dw)
+        S[:, 0], I[:, 0], R[:, 0] = S0, I0, R0
 
-    def run_with_policy(self):
-        """
-        Run the SIR model with the policy adjustments.
-        """
-        self.pid_controller()
-        self.sir_model.run_model()
+        S_sum, I_sum, R_sum, alpha_rec = [np.full(len(self.period), np.nan) for _ in range(4)]
+        S_sum[0], I_sum[0], R_sum[0] = np.sum(S[:, 0]), np.sum(I[:, 0]), np.sum(R[:, 0])
 
-    def plot_results_with_policy(self):
-        """
-        Plot the results of the SIR model simulation with policy adjustments.
-        """
-        self.sir_model.plot_results(title_suffix="with Policy")
+        # Initialize local copies of elit and epsln
+        elit = np.full(len(self.period), np.nan)
+        elit[0] = self.e_0  # Initial proportion of elite
+        epsln = np.full(len(self.period), np.nan)
+        epsln[0] = self.eps_factor * (1 - w[0]) / elit[0]
 
-def optimize_policy(sir_model):
-    """
-    Optimize the policy parameters using ema_workbench.
+        delta_w = np.zeros(len(self.period))
+        policy_cost = 0.0
 
-    :param sir_model: Instance of the SIRModel class
-    """
-    def policy_function(nw, na, wr, Ir_a):
-        policy_sir = PolicySIR(sir_model, nw, na, wr, Ir_a)
-        policy_sir.run_with_policy()
-        cost = policy_sir.policy_cost()
-        return {
-            'policy_cost': cost,
-            'radical_fraction': np.mean(policy_sir.sir_model.I.sum(axis=0))
-        }
+        for t in range(len(self.period) - 1):
+            t1 = t + 1
+            # Update elit[t1]
+            if self.pt_original:
+                elit[t1] = elit[t] + self.mu_0 * (self.w_0 - w[t]) / w[t]
+                elit[t1] -= (elit[t1] - self.e_0) * R_sum[t1]
+            else:
+                elit[t1] = elit[t] + self.mu_0 * (self.w_0 - w[t]) / w[t] - (elit[t] - self.e_0) * R_sum[t]
+            # Update epsln
+            epsln[t1] = self.eps_factor * (1 - w[t1]) / elit[t1]
 
-    model = Model('policySIR', function=policy_function)
-    model.uncertainties = [
-        RealParameter('nw', 0, 1),
-        RealParameter('na', 0, 1),
-        RealParameter('wr', 0, 2),
-        RealParameter('Ir_a', 0, 1)
-    ]
+            # Implement the policy adjustment Δw(t)
+            delta_w_t = self.eta_w * max(self.w_T - w[t], 0)
+            delta_w_t += np.sum(self.eta_a * np.maximum(I[:, t] - self.I_Ta, 0))
+            delta_w[t] = delta_w_t
+            w[t] += delta_w_t  # Adjust w[t] with the policy adjustment
+            policy_cost += abs(delta_w_t)  # Accumulate policy cost (absolute value)
 
-    model.outcomes = [
-        ScalarOutcome('policy_cost', kind=ScalarOutcome.MINIMIZE),
-        ScalarOutcome('radical_fraction', kind=ScalarOutcome.MINIMIZE)
-    ]
+            # Calculate alpha
+            alpha = np.clip(self.a_0 + self.a_w * (self.w_0 - w[t]) + self.a_e * (elit[t] - self.e_0) + self.YB_A20[t], self.a_0, self.a_max)
+            # Calculate sigma and rho
+            sigma = np.clip((alpha - self.gamma * np.sum(R[:, t])) * np.sum(I[:, t]) + self.sigma_0, 0, 1)
+            # Use fixed delta value (delta = 0.5 as per initial setup)
+            delta_fixed = 0.5
+            rho = np.clip(delta_fixed * np.sum(I[:, t - self.tau]) if t > self.tau else 0, 0, 1)
+            alpha_rec[t1] = alpha
 
-    policies = [Policy('no_policy', **{'nw': 0, 'na': 0, 'wr': 0, 'Ir_a': 0})]
+            # Update S, I, R
+            S[0, t1] = 1 / self.T_ages  # Birth of new susceptibles
+            for age in range(self.T_ages - 1):
+                age1 = age + 1
+                S[age1, t1] = (1 - sigma) * S[age, t]
+                I[age1, t1] = (1 - rho) * I[age, t] + sigma * S[age, t]
+                R[age1, t1] = R[age, t] + rho * I[age, t]
+            S_sum[t1], I_sum[t1], R_sum[t1] = np.sum(S[:, t1]), np.sum(I[:, t1]), np.sum(R[:, t1])
+            if self.pt_original:
+                elit[t1] -= (elit[t1] - self.e_0) * R_sum[t1]
 
-    with SequentialEvaluator(model) as evaluator:
-        results = evaluator.optimize(nfe=1000, searchover='levers', epsilons=[0.1, 0.1])
+        self.policy_cost = policy_cost  # Store total policy cost
+        self.delta_w = delta_w  # Store policy adjustments
+        return S, I, R, S_sum, I_sum, R_sum, alpha_rec, elit, epsln
 
-    return results
+def policySIRModel(**kwargs):
+    """Model function for ema_workbench."""
+    # Extract parameters from kwargs
+    a_w = kwargs['a_w']
+    a_e = kwargs['a_e']
+    eta_w = kwargs['eta_w']
+    eta_a = kwargs['eta_a']
+    w_T = kwargs['w_T']
+    I_Ta = kwargs['I_Ta']
 
+    # Initialize the model
+    model = PolicySIRModel(initialize_SIR=False, show_SIR_variation=False, enable_SDT=True, verbose=False)
+    model.a_w = a_w
+    model.a_e = a_e
+    # delta is fixed within the simulate method (delta = 0.5)
 
-### TEst
+    # Set policy parameters
+    eta_a_array = np.full(model.T_ages, eta_a)
+    I_Ta_array = np.full(model.T_ages, I_Ta)
+    model.set_policy_parameters(eta_w, eta_a_array, w_T, I_Ta_array)
 
-sir_model = SIRModel(initialize_SIR=False, show_SIR_variation=False, enable_SDT=True)
-sir_model.run_model()
-sir_model.plot_results()
+    # Run the model
+    model.run_model()
+    # Get the results
+    result = model.results[0]  # Assuming only one result
+    I_sum = result['I_sum']
 
-results = optimize_policy(sir_model)
-print(results)
+    # Compute outcomes
+    max_radicalized = np.max(I_sum)
+    final_radicalized = I_sum[-1]
+    policy_cost = model.policy_cost
+
+    return {'max_radicalized': max_radicalized,
+            'final_radicalized': final_radicalized,
+            'policy_cost': policy_cost}
+
+# Excample Run 
+
+ema_model = Model('PolicySIR', function=policySIRModel)
+
+# Uncertainties 
+# ema_model.uncertainties = [
+#    RealParameter('a_w', 0.5, 1.5),
+#    RealParameter('a_e', 25.0, 75.0)
+# ]
+
+# Constants
+ema_model.constants = [
+    Constant('a_w', 1.0),
+    Constant('a_e', 50.0)
+]
+
+# levers
+ema_model.levers = [
+    RealParameter('eta_w', 0.0, 1.0),
+    RealParameter('eta_a', 0.0, 1.0),  # Assuming same eta_a for all ages
+    RealParameter('w_T', 0.8, 1.0),
+    RealParameter('I_Ta', 0.0, 0.1),  # Assuming same I_Ta for all ages
+]
+
+# Outcomes
+ema_model.outcomes = [
+    ScalarOutcome('max_radicalized', kind=ScalarOutcome.MINIMIZE),
+    ScalarOutcome('final_radicalized', kind=ScalarOutcome.MINIMIZE),
+    ScalarOutcome('policy_cost', kind=ScalarOutcome.MINIMIZE),
+]
+
+# Convergence metrics
+convergence_metrics = [HyperVolume(minimum=[0, 0, 0], maximum=[1, 1, 10]),
+                        EpsilonProgress()]
+
+# Use SequentialEvaluator
+with SequentialEvaluator(ema_model) as evaluator:
+    results = evaluator.optimize(nfe=1000, searchover='levers',
+                                    epsilons=[0.01, 0.01, 0.1],
+                                    convergence=convergence_metrics)
+
+# Analyze and plot the results
+experiments, outcomes = results
+results_df = pd.DataFrame.from_dict(experiments)
+outcomes_df = pd.DataFrame.from_dict(outcomes)
+
+# Combine experiments 
+df = pd.concat([results_df, outcomes_df], axis=1)
+
+# Plot parallel coordinates
+limits = parcoords.get_limits(df)
+paraxes = parcoords.ParallelAxes(limits)
+paraxes.plot(df)
+plt.show()
