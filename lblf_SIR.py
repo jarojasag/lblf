@@ -12,7 +12,7 @@ class SIRModel:
         :param pt_original: Whether to use Peter's original parameters and initialization (True) or Jim's variation (False)
         :param initialize_SIR: Whether to initialize the SIR model with original parameters and states
         :param show_SIR_variation: Whether to show variation in the SIR model starting state
-        :param enable_SDT: Whether to enable SDT (Social Dominance Theory) forcing on the SIR model
+        :param enable_SDT: Whether to enable SDT (Structural Demographic Theory) forcing on the SIR model
         """
         self.pt_original = pt_original
         self.initialize_SIR = initialize_SIR
