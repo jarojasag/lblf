@@ -138,12 +138,6 @@ ema_model.uncertainties = [
     RealParameter('a_e', 25.0, 75.0)
  ]
 
-# Constants
-# ema_model.constants = [
-#     Constant('a_w', 1.0),
-#     Constant('a_e', 50.0)
-# ]
-
 # levers
 ema_model.levers = [
     RealParameter('eta_w', 0.0, 1.0),
@@ -272,13 +266,10 @@ box1 = prim_alg.find_box()
 
 # Display the results
 box1.show_tradeoff()
-box1.inspect(22, style='table')  # Inspecting the first box
+box1.inspect(10, style='table')  # Inspecting the first box
 
-# Optionally plot the box to visualize the results
-box1.show_box()
-
-box1.inspect(22)
-box1.inspect(22, style="graph")
+box1.inspect(10)
+box1.inspect(10, style="graph")
 
 
 
@@ -313,6 +304,7 @@ y = uncertainty_df_numeric['max_radicalized'] < 0.8   # Define the condition for
 y_array = y.values  # Converts the Series to a numpy array
 
 # Create the dimensional stacking plot with y as a numpy array
-dimensional_stacking.create_pivot_plot(x, y_array, 3)
+
+dimensional_stacking.create_pivot_plot(x, y_array, 3, nbins = 3)
 plt.show()
 

@@ -206,6 +206,7 @@ class SIRModel:
         ax1.set_title(f'US: Mockup historical w; fast recovery 2025 {self.show_SIR_variation} incr: {self.SIR_increment}')
         plt.show()
 
+
     def introduce_shock(self, w, shock_type, shock_year, shock_magnitude):
         """
         Introduce a shock to either elite numbers or wages.
@@ -214,7 +215,7 @@ class SIRModel:
         :param shock_type: Type of shock ('elite' or 'wage')
         :param shock_year: Year when the shock occurs
         :param shock_magnitude: Magnitude of the shock
-        :return: Modified wage array
+        :return: Modified wage array or elite array
         """
         shock_index = np.where(self.period == shock_year)[0]
         if len(shock_index) == 0:
@@ -223,11 +224,13 @@ class SIRModel:
 
         if shock_type == 'wage':
             w[shock_index:] += shock_magnitude
+            return w
         elif shock_type == 'elite':
-            pass  # Handle elite shock
+            elit = np.full(len(self.period), np.nan)
+            elit[shock_index:] = self.e_0 + shock_magnitude
+            return elit
         else:
             raise ValueError("Invalid shock_type. Must be 'elite' or 'wage'.")
-        return w
 
     def compare_with_shock(self, shock_type, shock_year, shock_magnitude):
         """
@@ -241,16 +244,21 @@ class SIRModel:
         y_i = int(self.SIR_starts[0])  # Assuming only one y_i
         S0, I0, R0 = self.S0[:, y_i], self.I0[:, y_i], self.R0[:, y_i]
         w_original = self.w.copy()
-        S, I, R, S_sum, I_sum, R_sum, alpha_rec, elit, epsln = self.simulate(S0, I0, R0, w_original)
-        original_results = {'S_sum': S_sum, 'I_sum': I_sum, 'R_sum': R_sum, 'elit': elit, 'w': w_original}
+        S, I, R, S_sum, I_sum, R_sum, alpha_rec, elit_original, epsln = self.simulate(S0, I0, R0, w_original)
+        original_results = {'S_sum': S_sum, 'I_sum': I_sum, 'R_sum': R_sum, 'elit': elit_original, 'w': w_original}
 
         # Introduce the shock
-        w_shocked = self.w.copy()
-        w_shocked = self.introduce_shock(w_shocked, shock_type, shock_year, shock_magnitude)
-
-        # Run the model with the shocked w
-        S, I, R, S_sum, I_sum, R_sum, alpha_rec, elit, epsln = self.simulate(S0, I0, R0, w_shocked)
-        shocked_results = {'S_sum': S_sum, 'I_sum': I_sum, 'R_sum': R_sum, 'elit': elit, 'w': w_shocked}
+        if shock_type == 'wage':
+            w_shocked = self.introduce_shock(w_original.copy(), shock_type, shock_year, shock_magnitude)
+            S, I, R, S_sum, I_sum, R_sum, alpha_rec, elit_shocked, epsln = self.simulate(S0, I0, R0, w_shocked)
+            shocked_results = {'S_sum': S_sum, 'I_sum': I_sum, 'R_sum': R_sum, 'elit': elit_shocked, 'w': w_shocked}
+        elif shock_type == 'elite':
+            elit_shocked = self.introduce_shock(w_original.copy(), shock_type, shock_year, shock_magnitude)
+            # Assuming the elite array impacts the dynamics
+            S, I, R, S_sum, I_sum, R_sum, alpha_rec, elit_final, epsln = self.simulate(S0, I0, R0, w_original)
+            shocked_results = {'S_sum': S_sum, 'I_sum': I_sum, 'R_sum': R_sum, 'elit': elit_shocked, 'w': w_original}
+        else:
+            raise ValueError("Invalid shock_type. Must be 'elite' or 'wage'.")
 
         # Plot the results for comparison
         fig, ax = plt.subplots(2, 1, figsize=(12, 16))
@@ -278,25 +286,25 @@ class SIRModel:
         fig.suptitle(f'Comparison of variables with and without shock ({shock_type} shock in {shock_year} of magnitude {shock_magnitude})')
         plt.show()
 
-    @staticmethod
-    def save_pkl_file(filename, data_tuple):
-        """Save data to a pickle file."""
-        with open(filename, "wb") as fh:
-            pickle.dump(data_tuple, fh)
-        return True
+        @staticmethod
+        def save_pkl_file(filename, data_tuple):
+            """Save data to a pickle file."""
+            with open(filename, "wb") as fh:
+                pickle.dump(data_tuple, fh)
+            return True
 
-    @staticmethod
-    def load_pkl_file(filename):
-        """Load data from a pickle file."""
-        try:
-            with open(filename, "rb") as fh:
-                if sys.version_info[:3] >= (3, 0):
-                    data_tuple = pickle.load(fh, encoding='latin1')
-                else:
-                    data_tuple = pickle.load(fh)
-        except:
-            raise RuntimeError(f"Unable to load {filename}!")
-        return data_tuple
+        @staticmethod
+        def load_pkl_file(filename):
+            """Load data from a pickle file."""
+            try:
+                with open(filename, "rb") as fh:
+                    if sys.version_info[:3] >= (3, 0):
+                        data_tuple = pickle.load(fh, encoding='latin1')
+                    else:
+                        data_tuple = pickle.load(fh)
+            except:
+                raise RuntimeError(f"Unable to load {filename}!")
+            return data_tuple
 
 
 ### Example 

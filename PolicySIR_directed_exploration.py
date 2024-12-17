@@ -4,8 +4,8 @@ ema_model = Model('PolicySIR', function=policySIRModel)
 
 # Uncertainties 
 ema_model.uncertainties = [
-    RealParameter('a_w', 0.5, 1.5),
-    RealParameter('a_e', 25.0, 75.0)
+    RealParameter('a_w', 0.1, 100),
+    RealParameter('a_e', 0.1, 100)
  ]
 
 # Constants
