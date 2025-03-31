@@ -106,12 +106,23 @@ class SIRModel:
         self.results = []
 
         # Resource dynamics parameters
-        self.R_max = 2.0               # Carrying capacity for natural resources
+        self.R_max = 1              # Carrying capacity for natural resources
         self.r_regen = 0.05            # Natural regeneration rate toward R_max
         self.delta_extract = 0.03      # Base depletion scaling factor for resource extraction
         self.mu_elite_extr = 0.5       # Additional depletion factor per unit of elite fraction
-        self.alpha_w = 1.0             # Elasticity parameter for wages with respect to resources
+        self.alpha_w = 1.5             # Elasticity parameter for wages with respect to resources
         self.eta = 1.0                 # Depletion sensitivity to wage levels
+
+        # Playing with Resource Sensitivity & Regeneration 
+
+        self.r_regen = 0.01  # Slower resource replenishment (was 0.05)
+        self.mu_elite_extr = 1.0  # Elites have a stronger effect on resource use (was 0.5)
+        self.eta = 3.0  # Wage increases cause even more resource depletion (was 1.0)
+
+        # Playing with Wage Elasticity & Economic Sensitivity
+        self.alpha_w = 2.0  # Wages are more sensitive to resource depletion (was 1.0)
+        self.a_w = 2.0  # Higher sensitivity of radicalization to wage fluctuations (was 1.0)
+        self.a_e = 1.0 * 100  # Make radicalization more responsive to elite fraction (was 0.5 * 100)
 
         # Initialize resource stock array
         self.R_nat = np.full(len(self.period), np.nan)  # Natural resource stock over time
@@ -240,8 +251,7 @@ class SIRModel:
 
             # Calculate sigma and rho for SIR transitions
             sigma = np.clip((alpha - self.gamma * np.sum(R[:, t])) * np.sum(I[:, t]) + self.sigma_0, 0, 1)
-
-            # **Corrected Line: Use I_sum instead of I**
+            # Corrected rho calculation using I_sum
             rho = np.clip(self.delta * (I_sum[t - self.tau] if t > self.tau else 0), 0, 1)
 
             # Update S, I, R with age-structured transitions
@@ -299,16 +309,29 @@ class SIRModel:
 
     def plot_results(self):
         """
-        Plot the results of the SIR model simulation.
-
+        Plot the results of the SIR model simulation with a polished style.
+        
         Generates two subplots:
         - Top: Wages, Youth Bulge, Elite Fraction, Radicalization Rate, Radical Fraction (I), Moderate Fraction (R)
-        - Bottom: Natural Resource Stock over time
+        - Bottom: Natural Resource Stock over time, 
+        with y-axis limited to the max resource value encountered.
         """
-        fig, ax = plt.subplots(2, 1, figsize=(14, 12))
-        brown, nice_green = '#A52A2A', '#00BFFF'
+        fig, ax = plt.subplots(2, 1, figsize=(12, 12))
+        
+        # Define some custom colors
+        brown = '#A52A2A'       # For wages
+        nice_green = '#00BFFF'  # For radicalization rate (alpha)
 
+        # We'll collect plot handles for a consolidated legend
+        handles_collector = []
+
+        # First, find the maximum resource value across all results for dynamic scaling
+        max_resource = 0
         for result in self.results:
+            max_resource = max(max_resource, np.max(result['R_nat']))
+        
+        # Plot each result set if multiple runs exist
+        for idx, result in enumerate(self.results):
             S_sum = result['S_sum']
             I_sum = result['I_sum']
             R_sum = result['R_sum']
@@ -318,54 +341,76 @@ class SIRModel:
             R_nat = result['R_nat']
             YB_A20 = result['YB_A20']
 
-            # Top subplot: Social and Economic Variables
+            # ===== TOP SUBPLOT: Social and Economic Variables =====
+            # Plot wage
             if self.enable_SDT:
-                ax[0].plot(self.period, w_array, color=brown, linestyle='-', linewidth=2, label='(w) Endogenous wage')
-                ax[0].plot(self.period, YB_A20, color='k', linestyle='-.', linewidth=2, label=f'Youth bulge {self.YB_year}')
-                ax[0].plot(self.period, elit * 100, color='b', linestyle='-', label='(e*100) Elite fraction of population')
-                ax[0].plot(self.period, alpha_rec, color=nice_green, linestyle='--', linewidth=2, label=r'($\alpha$) Radicalization rate')
-                if self.show_year in self.period:
-                    ax[0].axvline(x=self.show_year, color='k', linestyle='--')
+                l1, = ax[0].plot(self.period, w_array, color=brown, linestyle='-', linewidth=2,
+                                label='(w) Endogenous wage' if idx == 0 else "_nolegend_")
 
-            # Plot Radical and Moderate fractions
-            ax[0].plot(self.period, I_sum, color='r', linestyle='-', label='(I) Radical fraction')
-            ax[0].plot(self.period, R_sum, color='k', linestyle='-', label='(R) Moderate fraction')
+                # Youth bulge
+                l2, = ax[0].plot(self.period, YB_A20, color='k', linestyle='-.', linewidth=2,
+                                label=f'Youth bulge {self.YB_year}' if idx == 0 else "_nolegend_")
 
-        # Configure top subplot
-        handles = []
-        if self.enable_SDT:
-            handles += [
-                plt.Line2D([0], [0], color=brown, lw=2, label='(w) Endogenous wage'),
-                plt.Line2D([0], [0], color='k', lw=2, linestyle='-.', label=f'Youth bulge {self.YB_year}'),
-                plt.Line2D([0], [0], color='b', lw=2, label='(e*100) Elite fraction of population'),
-                plt.Line2D([0], [0], color=nice_green, lw=2, linestyle='--', label=r'($\alpha$) Radicalization rate')
-            ]
-        handles += [
-            plt.Line2D([0], [0], color='r', lw=2, label='(I) Radical fraction'),
-            plt.Line2D([0], [0], color='k', lw=2, label='(R) Moderate fraction')
-        ]
+                # Elite fraction (scaled by 100 to make it percentage-like)
+                l3, = ax[0].plot(self.period, elit * 100, color='b', linestyle='-',
+                                label='(e*100) Elite fraction' if idx == 0 else "_nolegend_")
 
-        ax[0].legend(handles=handles, loc='upper left', fontsize=12)
-        ax[0].set_xlabel('Year', fontsize=14)
-        ax[0].set_ylabel('Fraction / Percentage', fontsize=14)
-        ax[0].grid(True)
-        ax[0].set_ylim([-0.1, 2.5])
-        ax[0].set_xlim([self.period[0], self.period[-1]])
-        ax[0].set_title('Social and Economic Variables', fontsize=16)
+                # Radicalization rate alpha
+                l4, = ax[0].plot(self.period, alpha_rec, color=nice_green, linestyle='--', linewidth=2,
+                                label=r'($\alpha$) radicalization rate' if idx == 0 else "_nolegend_")
 
-        # Bottom subplot: Natural Resource Dynamics
-        for result in self.results:
-            R_nat = result['R_nat']
-            ax[1].plot(self.period, R_nat, color='green', linestyle='-', linewidth=2, label='Resource Stock')
+                # Keep references for the legend if first run
+                if idx == 0:
+                    handles_collector += [l1, l2, l3, l4]
 
+            # Radical (I) fraction
+            l5, = ax[0].plot(self.period, I_sum, color='r', linestyle='-',
+                            label='(I) Radical fraction' if idx == 0 else "_nolegend_")
+            # Moderate (R) fraction
+            l6, = ax[0].plot(self.period, R_sum, color='k', linestyle='-',
+                            label='(R) Moderate fraction' if idx == 0 else "_nolegend_")
+
+            if idx == 0:
+                handles_collector += [l5, l6]
+
+            # Optionally add a vertical line for a highlight year
+            if (self.show_year in self.period) and (idx == 0):
+                ax[0].axvline(x=self.show_year, color='k', linestyle='--')
+
+            # ===== BOTTOM SUBPLOT: Resource Dynamics =====
+            l7, = ax[1].plot(self.period, R_nat, color='green', linestyle='-', linewidth=2,
+                            label='Resource Stock' if idx == 0 else "_nolegend_")
+
+            if idx == 0:
+                handles_collector.append(l7)
+
+        # Add horizontal line for R_max in bottom subplot
         ax[1].axhline(self.R_max, color='gray', linestyle='--', label='R_max')
-        ax[1].set_title('Natural Resource Dynamics', fontsize=16)
-        ax[1].set_xlabel('Year', fontsize=14)
-        ax[1].set_ylabel('Resource Stock', fontsize=14)
-        ax[1].legend()
+
+        # ===== Final configuration of subplots =====
+        # Top subplot settings
+        ax[0].set_xlabel('Year', fontsize=12)
+        ax[0].set_ylabel('Fraction / Rate / Level', fontsize=12)
+        ax[0].set_title('Social and Economic Variables', fontsize=14)
+        ax[0].set_xlim([self.period[0], self.period[-1]])
+        ax[0].grid(True)
+
+        # Bottom subplot settings
+        ax[1].set_title('Natural Resource Dynamics', fontsize=14)
+        ax[1].set_xlabel('Year', fontsize=12)
+        ax[1].set_ylabel('Resource Stock', fontsize=12)
         ax[1].grid(True)
 
-        plt.tight_layout()
+        # Dynamically limit the y-axis to show detail of resource fluctuations
+        # Add a small buffer on top so lines are not flush with the upper boundary
+        # Consolidated legend for all lines
+        fig.legend(handles=handles_collector,
+                loc='center left',
+                bbox_to_anchor=(0.95, 0.5),
+                fontsize=11)
+
+        # Adjust the layout to make room for the legend
+        plt.tight_layout(rect=[0, 0, 0.93, 1])
         plt.show()
 
     def introduce_shock(self, shock_type, shock_year, shock_magnitude):
@@ -487,7 +532,147 @@ class SIRModel:
         ax[0].set_xlabel('Year', fontsize=14)
         ax[0].set_ylabel('Fraction / Percentage', fontsize=14)
         ax[0].grid(True)
-        ax[0].set_ylim([-0.1, 2.5])
+        ax[0].set_xlim([self.period[0], self.period[-1]])
+        ax[0].set_title('Social and Economic Variables', fontsize=16)
+
+        # Bottom subplot: Natural Resource Dynamics
+        for result in self.results:
+            R_nat = result['R_nat']
+            ax[1].plot(self.period, R_nat, color='green', linestyle='-', linewidth=2, label='Resource Stock')
+
+        ax[1].axhline(self.R_max, color='gray', linestyle='--', label='R_max')
+        ax[1].set_title('Natural Resource Dynamics', fontsize=16)
+        ax[1].set_xlabel('Year', fontsize=14)
+        ax[1].set_ylabel('Resource Stock', fontsize=14)
+        ax[1].legend()
+        ax[1].grid(True)
+
+        plt.tight_layout()
+        plt.show()
+
+    def introduce_shock(self, shock_type, shock_year, shock_magnitude):
+        """
+        Introduce a shock to the model by altering resource stock or elite fraction.
+
+        :param shock_type: Type of shock ('resource' or 'elite')
+        :param shock_year: Year when the shock occurs
+        :param shock_magnitude: Magnitude of the shock (positive or negative)
+        """
+        shock_index = np.where(self.period == shock_year)[0]
+        if len(shock_index) == 0:
+            raise ValueError("Invalid shock_year. Year not found in the period range.")
+        shock_index = shock_index[0]
+
+        if shock_type == 'resource':
+            # Apply shock to resource stock from shock_year onward
+            self.R_nat[shock_index:] += shock_magnitude
+            # Ensure resource stock does not drop below zero
+            self.R_nat = np.maximum(self.R_nat, 0.0)
+        elif shock_type == 'elite':
+            # Adjust the baseline elite fraction
+            self.e_0 += shock_magnitude
+            # Ensure elite fraction remains between 0 and 1
+            self.e_0 = np.clip(self.e_0, 0.0, 1.0)        
+        elif shock_type == 'reduce_regen':
+            new_r_regen = self.r_regen - shock_magnitude
+            # Ensure it doesn't go below zero
+            self.r_regen = max(new_r_regen, 0.0)
+        else:
+            raise ValueError("Invalid shock_type. Must be 'resource' or 'elite'.")
+
+    def compare_with_shock(self, shock_type, shock_year, shock_magnitude):
+        """
+        Compare the model trajectories with and without a specified shock.
+
+        :param shock_type: Type of shock ('resource' or 'elite')
+        :param shock_year: Year when the shock occurs
+        :param shock_magnitude: Magnitude of the shock
+        """
+        # Store original parameters to restore after comparison
+        original_e0 = self.e_0
+        original_R_nat = self.R_nat.copy()
+
+        # Run baseline simulation without shock
+        self.e_0 = original_e0
+        self.R_nat = original_R_nat.copy()
+        self.run_model()
+        baseline_result = self.results[-1]
+
+        # Apply shock
+        self.introduce_shock(shock_type, shock_year, shock_magnitude)
+
+        # Run shocked simulation
+        self.run_model()
+        shocked_result = self.results[-1]
+
+        # Extract data for plotting
+        S_sum_base = baseline_result['S_sum']
+        I_sum_base = baseline_result['I_sum']
+        R_sum_base = baseline_result['R_sum']
+        elit_base = baseline_result['elit']
+        w_base = baseline_result['w']
+        R_nat_base = baseline_result['R_nat']
+        alpha_rec_base = baseline_result['alpha_rec']
+
+        S_sum_shock = shocked_result['S_sum']
+        I_sum_shock = shocked_result['I_sum']
+        R_sum_shock = shocked_result['R_sum']
+        elit_shock = shocked_result['elit']
+        w_shock = shocked_result['w']
+        R_nat_shock = shocked_result['R_nat']
+        alpha_rec_shock = shocked_result['alpha_rec']
+
+        # Create plots for comparison
+        fig, ax = plt.subplots(2, 1, figsize=(14, 16))
+        brown, nice_green = '#A52A2A', '#00BFFF'
+
+        # Top subplot: Social and Economic Variables
+        if self.enable_SDT:
+            ax[0].plot(self.period, w_base, color=brown, linestyle='-', linewidth=2, label='(w) Endogenous wage (Baseline)')
+            ax[0].plot(self.period, w_shock, color=brown, linestyle='--', linewidth=2, label='(w) Endogenous wage (Shock)')
+
+            ax[0].plot(self.period, self.YB_A20, color='k', linestyle='-.', linewidth=2, label=f'Youth bulge {self.YB_year} (Baseline)')
+            ax[0].plot(self.period, self.YB_A20, color='k', linestyle=':', linewidth=2, label=f'Youth bulge {self.YB_year} (Shock)')
+
+            ax[0].plot(self.period, elit_base * 100, color='b', linestyle='-', label='(e*100) Elite fraction (Baseline)')
+            ax[0].plot(self.period, elit_shock * 100, color='b', linestyle='--', label='(e*100) Elite fraction (Shock)')
+
+            ax[0].plot(self.period, alpha_rec_base, color=nice_green, linestyle='-', linewidth=2, label=r'($\alpha$) Radicalization rate (Baseline)')
+            ax[0].plot(self.period, alpha_rec_shock, color=nice_green, linestyle='--', linewidth=2, label=r'($\alpha$) Radicalization rate (Shock)')
+
+            if self.show_year in self.period:
+                ax[0].axvline(x=self.show_year, color='k', linestyle='--')
+
+        # Plot Radical and Moderate fractions
+        ax[0].plot(self.period, I_sum_base, color='r', linestyle='-', label='(I) Radical fraction (Baseline)')
+        ax[0].plot(self.period, I_sum_shock, color='r', linestyle='--', label='(I) Radical fraction (Shock)')
+        ax[0].plot(self.period, R_sum_base, color='k', linestyle='-', label='(R) Moderate fraction (Baseline)')
+        ax[0].plot(self.period, R_sum_shock, color='k', linestyle='--', label='(R) Moderate fraction (Shock)')
+
+        # Configure top subplot
+        handles = []
+        if self.enable_SDT:
+            handles += [
+                plt.Line2D([0], [0], color=brown, lw=2, label='(w) Endogenous wage (Baseline)'),
+                plt.Line2D([0], [0], color=brown, lw=2, linestyle='--', label='(w) Endogenous wage (Shock)'),
+                plt.Line2D([0], [0], color='k', lw=2, linestyle='-.', label=f'Youth bulge {self.YB_year} (Baseline)'),
+                plt.Line2D([0], [0], color='k', lw=2, linestyle=':', label=f'Youth bulge {self.YB_year} (Shock)'),
+                plt.Line2D([0], [0], color='b', lw=2, label='(e*100) Elite fraction (Baseline)'),
+                plt.Line2D([0], [0], color='b', lw=2, linestyle='--', label='(e*100) Elite fraction (Shock)'),
+                plt.Line2D([0], [0], color=nice_green, lw=2, linestyle='-', label=r'($\alpha$) Radicalization rate (Baseline)'),
+                plt.Line2D([0], [0], color=nice_green, lw=2, linestyle='--', label=r'($\alpha$) Radicalization rate (Shock)')
+            ]
+        handles += [
+            plt.Line2D([0], [0], color='r', lw=2, label='(I) Radical fraction (Baseline)'),
+            plt.Line2D([0], [0], color='r', lw=2, linestyle='--', label='(I) Radical fraction (Shock)'),
+            plt.Line2D([0], [0], color='k', lw=2, label='(R) Moderate fraction (Baseline)'),
+            plt.Line2D([0], [0], color='k', lw=2, linestyle='--', label='(R) Moderate fraction (Shock)')
+        ]
+
+        ax[0].legend(handles=handles, loc='upper left', fontsize=12)
+        ax[0].set_xlabel('Year', fontsize=14)
+        ax[0].set_ylabel('Fraction / Percentage', fontsize=14)
+        ax[0].grid(True)
         ax[0].set_xlim([self.period[0], self.period[-1]])
         ax[0].set_title(f'Comparison of Variables with and without {shock_type.capitalize()} Shock (Magnitude: {shock_magnitude})', fontsize=16)
 
@@ -500,6 +685,7 @@ class SIRModel:
         ax[1].set_ylabel('Resource Stock', fontsize=14)
         ax[1].legend()
         ax[1].grid(True)
+        ax[1].autoscale_view()
 
         plt.tight_layout()
         plt.show()
@@ -528,7 +714,8 @@ class SIRModel:
             raise RuntimeError(f"Unable to load {filename}!")
         return data_tuple
 
-### Example Usage
+
+# Example 
 
 model = SIRModel(
     pt_original=False,          # Use Jim's variation for elite fraction dynamics
@@ -539,32 +726,9 @@ model = SIRModel(
     verbose=True                # Enable verbose output
 )
 
-
 model.run_model()
 model.plot_results()
 
-# Example Shock Scenarios
-
-# 1. Resource Shock: Increase resource stock by 0.5 units in 1900
-shock_type = 'resource'
-shock_year = 1900
-shock_magnitude = 0.5
-model.compare_with_shock(shock_type, shock_year, shock_magnitude)
-
-# 2. Elite Shock: Increase elite fraction baseline by 0.05 in 1960
-shock_type = 'elite'
-shock_year = 1960
-shock_magnitude = 0.05
-model.compare_with_shock(shock_type, shock_year, shock_magnitude)
-
-# 3. Negative Resource Shock: Decrease resource stock by 0.3 units in 2000
-shock_type = 'resource'
-shock_year = 2000
-shock_magnitude = -0.3
-model.compare_with_shock(shock_type, shock_year, shock_magnitude)
-
-# 4. Negative Elite Shock: Decrease elite fraction baseline by 0.02 in 1980
-shock_type = 'elite'
-shock_year = 1980
-shock_magnitude = -0.02
-model.compare_with_shock(shock_type, shock_year, shock_magnitude)
+model.compare_with_shock('resource', 1950, -0.3)
+model.compare_with_shock('elite', 1990, 0.05)
+model.compare_with_shock('reduce_regen', 1990, 0.05)
