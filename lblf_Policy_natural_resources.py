@@ -1,8 +1,11 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
+from matplotlib.ticker import FuncFormatter, FixedLocator
+import matplotlib.patches as mpatches
 import pandas as pd
 import seaborn as sns
+import parcoords   
 
 from ema_workbench import Model, RealParameter, ScalarOutcome , ema_logging
 from ema_workbench.em_framework import SequentialEvaluator, Samplers
@@ -29,8 +32,9 @@ class PolicySIRModel(SIRModel):
         self.delta_w = np.zeros(len(self.period)) # Time-series of wage adjustments
         self.wage_cost = 0.0
         self.conservation_cost = 0.0
-        self.conservation_investment = 0.0 # Effort
+        self.conservation_effort = 0.0 # Effort
         self.conservation_unit_cost = 5.0  # Cost
+        self.conservation_effectiveness = 0.5 # Maximum reduction in depletion due to conservation
 
     def set_policy_parameters(
             self, 
@@ -38,15 +42,17 @@ class PolicySIRModel(SIRModel):
             eta_a, 
             w_T, 
             I_Ta, 
-            conservation_investment=0.0,
-            conservation_unit_cost=5.0
+            conservation_effort=0.0,
+            conservation_unit_cost=5.0,
+            conservation_effectiveness=0.5
         ):
         self.eta_w = eta_w
         self.eta_a = np.array(eta_a)
         self.w_T = w_T
         self.I_Ta = np.array(I_Ta)
-        self.conservation_investment = conservation_investment
+        self.conservation_effort = conservation_effort
         self.conservation_unit_cost = conservation_unit_cost
+        self.conservation_effectiveness = conservation_effectiveness
 
     def simulate(self, S0, I0, R0):
         """
@@ -94,7 +100,7 @@ class PolicySIRModel(SIRModel):
             self.wage_cost += abs(delta_w_t)
 
             # Conservation cost
-            self.conservation_cost += self.conservation_investment * self.conservation_unit_cost
+            self.conservation_cost += self.conservation_effort * self.conservation_unit_cost
 
             if self.pt_original:
                 elit[t1] = elit[t] + self.mu_0 * (self.w_0 - w[t]) / w[t]
@@ -132,7 +138,7 @@ class PolicySIRModel(SIRModel):
 
             # Resource depletion and partial conservation
             dep_t = self.depletion_function(w[t], elit[t])
-            dep_t *= (1 - 0.5 * self.conservation_investment)
+            dep_t *= (1 - self.conservation_effectiveness * self.conservation_effort)
             nat_res_local[t1] = self.resource_update(nat_res_local[t], dep_t)
 
         return (
@@ -179,18 +185,34 @@ def policySIRModel(**kwargs):
     sets parameters, runs it, and returns the outcomes
     """
 
-    a_w = kwargs.get('a_w', 1.0)
-    a_e = kwargs.get('a_e', 50.0)
-    eta_w = kwargs.get('eta_w', 0.0)
-    eta_a = kwargs.get('eta_a', 0.0)
-    w_T = kwargs.get('w_T', 0.8)
-    I_Ta = kwargs.get('I_Ta', 0.1)
-    conservation_investment = kwargs.get('conservation_investment', 0.0)
-    conservation_unit_cost = kwargs.get('conservation_unit_cost', 5.0)
+    ## RADICALIZATION DRIVERS
+    a_w = kwargs.get('a_w', 1.0)      # α_w : effect size of wage deviation on radicalization
+    a_e = kwargs.get('a_e', 50.0)     # α_e : effect size of elite-fraction deviation on radicalization
 
-    # Resource uncertainties
-    nat_res_regen = kwargs.get('nat_res_regen', 0.05)
-    delta_extract = kwargs.get('delta_extract', 0.03)
+    ## RESPONSE CURVATURE
+    eta_w = kwargs.get('eta_w', 0.0)  # η_w : exponent for wage sensitivity in radicalization
+    eta_a = kwargs.get('eta_a', 0.0)  # η_a : exponent for elite-fraction sensitivity in radicalization
+
+    ## BASELINES & THRESHOLDS
+    w_T  = kwargs.get('w_T', 0.8)     # w_T  : “normal” (target) wage level
+    I_Ta = kwargs.get('I_Ta', 0.1)    # I_Ta : radicalization threshold share
+
+    ## CONSERVATION POLICY LEVERS
+    conservation_effort = kwargs.get('conservation_effort', 0.0)  # 0 to 1
+    conservation_unit_cost = kwargs.get('conservation_unit_cost', 5.0)   # $ per unit of conservation action
+    conservation_effectiveness = kwargs.get('conservation_effectiveness', 0.5)  # depletion reduction per unit invested
+
+    ## SOCIO-ECOLOGICAL COUPLINGS
+    eta_deplet    = kwargs.get('eta_deplet', 1.0)  # exponent linking wage to resource depletion pressure
+    mu_elite_extr = kwargs.get('mu_elite_extr', 0.5)  # extraction multiplier driven by elites
+
+    ## SOCIAL-STRUCTURE DYNAMICS
+    mu_0 = kwargs.get('mu_0', 0.003)  # μ₀ : annual upward-mobility rate into the elite class
+    e_0  = kwargs.get('e_0', 0.01)    # e₀ : long-run expected elite fraction
+
+    ## RESOURCE SYSTEM
+    nat_res_regen = kwargs.get('nat_res_regen', 0.05)  # r : intrinsic regeneration rate of the resource
+    delta_extract = kwargs.get('delta_extract', 0.03)  # δ : baseline extraction rate (fraction of stock removed per year)
 
     model = PolicySIRModel(
         initialize_SIR=False,
@@ -199,194 +221,34 @@ def policySIRModel(**kwargs):
         verbose=False
     )
 
-    model.a_w = a_w
-    model.a_e = a_e
+    model.a_w, model.a_e = a_w, a_e
+    model.nat_res_regen, model.delta_extract = nat_res_regen, delta_extract
+    model.eta_deplet, model.mu_elite_extr = eta_deplet, mu_elite_extr
+    model.mu_0, model.e_0 = mu_0, e_0
 
-    # Resource
-    model.nat_res_regen = nat_res_regen
-    model.delta_extract = delta_extract
+    # refresh derived surplus factor after changing e₀
+    model.eps_factor = (1 - model.w_0) / model.e_0
 
+    # policy levers by cohort
     eta_a_array = np.full(model.T_ages, eta_a)
-    I_Ta_array = np.full(model.T_ages, I_Ta)
+    I_Ta_array  = np.full(model.T_ages, I_Ta)
 
     # Policy Parameters
     model.set_policy_parameters(
-        eta_w,
-        eta_a_array,
-        w_T,
-        I_Ta_array,
-        conservation_investment=conservation_investment,
-        conservation_unit_cost=conservation_unit_cost
+        eta_w, eta_a_array, w_T, I_Ta_array,
+        conservation_effort=conservation_effort,
+        conservation_unit_cost=conservation_unit_cost,
+        conservation_effectiveness=conservation_effectiveness
     )
 
     model.run_model()
-    result = model.results[0]
+    res = model.results[0]
 
-    I_sum = result['I_sum']
-    max_radicalized = np.max(I_sum)
-    final_radicalized = I_sum[-1]
-    wage_cost = result['wage_cost']
-    conservation_cost = result['conservation_cost']
-    final_resource = result['nat_res_array'][-1]
-
-    return {
-        'max_radicalized': max_radicalized,
-        'final_radicalized': final_radicalized,
-        'wage_cost': wage_cost,
-        'conservation_cost': conservation_cost,
-        'final_resource': final_resource
-    }
-
-
-### Test Run
-ema_model = Model('PolicySIR', function=policySIRModel)
-
-# Uncertainties
-ema_model.uncertainties = [
-    RealParameter('a_w', 0.01, 3.0), # how wage deviation affects radicalization
-    RealParameter('a_e', 10.0, 150.0), # how elite fraction affects radicalization
-    RealParameter('nat_res_regen', 0.01,  0.2), # resource regeneration
-    RealParameter('delta_extract', 0.005, 0.1), # resource extraction
-    RealParameter('delta', 0.1, 1.0)
-]
-
-# Levers
-ema_model.levers = [
-    RealParameter('eta_w', 0.01, 2.0), # wage sensitivity
-    RealParameter('eta_a', 0.01, 2.0),  # radicalization threshold policy
-    RealParameter('w_T', 0.5, 1.0), # wage target
-    RealParameter('I_Ta', 0.01, 0.3), # radicalization threshold for each cohort
-    RealParameter('conservation_investment', 0.0, 1.0),
-    RealParameter('conservation_unit_cost', 1.0, 15.0)
-]
-
-# Putcomes
-ema_model.outcomes = [
-    ScalarOutcome('max_radicalized'),
-    ScalarOutcome('final_radicalized'),
-    ScalarOutcome('wage_cost'),
-    ScalarOutcome('conservation_cost'),
-    ScalarOutcome('final_resource'),
-]
-
-### Exploration 
-
-with SequentialEvaluator(ema_model) as evaluator:
-    results_uncertainty = evaluator.perform_experiments(scenarios=500, policies=5)
-
-experiments_unc, outcomes_unc = results_uncertainty
-results_unc_df = pd.DataFrame.from_dict(experiments_unc)
-outcomes_unc_df = pd.DataFrame.from_dict(outcomes_unc)
-uncertainty_df = pd.concat([results_unc_df, outcomes_unc_df], axis=1)
-
-uncertainty_df_numeric = uncertainty_df.select_dtypes(include=[float, int])
-uncertainty_df_numeric.to_csv('EMA_Output.csv')
-
-
-## Parallel plots 
-parcoords_lims = parcoords.get_limits(uncertainty_df_numeric)
-paraxes_unc = parcoords.ParallelAxes(parcoords_lims)
-paraxes_unc.plot(uncertainty_df_numeric)
-plt.title('Uncertainty Impact on Outcomes')
-plt.show()
-
-# Low Radicalization
-top_lowest_radicalized = uncertainty_df_numeric.nsmallest(10, 'max_radicalized')
-
-parcoords_lims = parcoords.get_limits(uncertainty_df_numeric)
-paraxes_unc = parcoords.ParallelAxes(parcoords_lims, fontsize = 8)
-paraxes_unc.plot(uncertainty_df_numeric, color='lightgray')
-paraxes_unc.plot(top_lowest_radicalized, color='blue')
-
-plt.title('Experiments with Lowest max_radicalized Highlighted')
-plt.show()
-
-# Low Wage Compensation Cost
-top_lowest_wage = uncertainty_df_numeric.nsmallest(20, 'wage_cost')
-
-parcoords_lims = parcoords.get_limits(uncertainty_df_numeric)
-paraxes_unc = parcoords.ParallelAxes(parcoords_lims, fontsize = 8)
-
-paraxes_unc.plot(uncertainty_df_numeric, color='lightgray')
-paraxes_unc.plot(top_lowest_wage, color='blue')
-
-plt.title('Experiments with Lowest Wage Cost')
-plt.show()
-
-# Lowest Conservation Cost 
-lowest_conservation_cost = uncertainty_df_numeric.nsmallest(10, 'conservation_cost')
-parcoords_lims = parcoords.get_limits(uncertainty_df_numeric)
-paraxes_unc = parcoords.ParallelAxes(parcoords_lims, fontsize = 8)
-paraxes_unc.plot(uncertainty_df_numeric, color='lightgray')
-paraxes_unc.plot(lowest_conservation_cost, color='blue')
-
-plt.title('Experiments with Lowest Conservation Cost Highlighted')
-plt.show()
-
-# Highest Final Resources
-largest_final_resource = uncertainty_df_numeric.nlargest(10, 'final_resource')
-parcoords_lims = parcoords.get_limits(uncertainty_df_numeric)
-paraxes_unc = parcoords.ParallelAxes(parcoords_lims, fontsize = 8)
-paraxes_unc.plot(uncertainty_df_numeric, color='lightgray')
-paraxes_unc.plot(largest_final_resource, color='blue')
-
-plt.title('Experiments with Largest final_resource Highlighted')
-plt.show()
-
-
-### PRIM
-
-from ema_workbench.analysis import prim
-
-x = uncertainty_df_numeric.drop(columns=[
-    'max_radicalized', 
-    'final_radicalized', 
-    'wage_cost', 
-    'conservation_cost', 
-    'final_resource']
-
-# ['max_radicalized'] < 0.3
-y = uncertainty_df_numeric['max_radicalized'] < 0.3
-prim_alg = prim.Prim(x, y, threshold=0.8)
-box1 = prim_alg.find_box()
-box1.show_tradeoff()
-box1.inspect(1, style='table')
-box1.inspect(4, style='table')
-
-# ['wage_cost'] < 1
-y = uncertainty_df_numeric['wage_cost'] < 1
-prim_alg = prim.Prim(x, y, threshold=0.6)
-box1 = prim_alg.find_box()
-box1.show_tradeoff()
-box1.inspect(3, style='table')
-box1.inspect(9, style='table')
-
-# ['conservation_cost'] < 280
-y = uncertainty_df_numeric['conservation_cost'] < 255
-prim_alg = prim.Prim(x, y, threshold=0.6)
-box1 = prim_alg.find_box()
-box1.show_tradeoff()
-box1.inspect(1, style='table')
-box1.inspect(3, style='table')
-
-# ['final_resource'] > 1.8
-y = uncertainty_df_numeric['final_resource'] > 1.8
-prim_alg = prim.Prim(x, y, threshold=0.6)
-box1 = prim_alg.find_box()
-box1.show_tradeoff()
-box1.inspect(1, style='table')
-box1.inspect(45, style='table')
-
-
-### Feature Scoring
-from ema_workbench.analysis import feature_scoring
-
-outcome_columns = ['max_radicalized', 'final_radicalized', 'wage_cost', 'conservation_cost', 'final_resource']
-filtered_df = uncertainty_df_numeric.dropna(subset=outcome_columns)
-x_fs = filtered_df.drop(columns=outcome_columns, errors='ignore')
-y_fs = {col: filtered_df[col] for col in outcome_columns}
-fs = feature_scoring.get_feature_scores_all(x_fs, y_fs)
-
-sns.heatmap(fs, cmap="viridis", annot=True)
-plt.title("Feature Scoring Heatmap")
-plt.show()
+    I_sum = res['I_sum']
+    return dict(
+        max_radicalized   = np.max(I_sum),
+        final_radicalized = I_sum[-1],
+        wage_cost         = res['wage_cost'],
+        conservation_cost = res['conservation_cost'],
+        final_resource    = res['nat_res_array'][-1]
+    )

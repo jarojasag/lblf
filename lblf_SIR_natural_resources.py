@@ -109,7 +109,7 @@ class SIRModel:
         self.delta_extract = 0.03      # Base rate of resource extraction
         self.mu_elite_extr = 0.5       # Multiplier for extraction due to elite fraction
         self.alpha_w = 1.0             # Exponent controlling wage response to resource ratio
-        self.eta = 1.0                 # Exponent controlling how wage influences depletion
+        self.eta_deplet = 1.0          # Exponent controlling how wage influences depletion
 
         self.nat_res_array = np.full(len(self.period), np.nan)
         self.nat_res_array[0] = 1.0
@@ -149,7 +149,7 @@ class SIRModel:
         """
         Compute how much resource is extracted/depleted this period, given wage and elite fraction.
         """
-        return self.delta_extract * (1 + self.mu_elite_extr * elit_t) * (w_t**self.eta)
+        return self.delta_extract * (1 + self.mu_elite_extr * elit_t) * (w_t**self.eta_deplet)
 
     def resource_update(self, nat_res_t, dep_t):
         """
