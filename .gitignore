@@ -158,3 +158,8 @@ cython_debug/
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
+EMA_Output_BaseRun_.csv
+EMA_Output_LeverRun_.csv
+EMA_Output_Expanded_base.csv
+EMA_Output_Expanded.csv
+EMA_Output_RSet.csv
