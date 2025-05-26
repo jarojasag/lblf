@@ -10,7 +10,7 @@ class SIRModel:
                  initialize_SIR=False, 
                  show_SIR_variation=True, 
                  enable_SDT=True, 
-                 verbose=True):
+                 verbose=False):
         """
         Model with endogenous wages and resource dynamics.
         Includes mid-run shocks and plots.
@@ -183,7 +183,7 @@ class SIRModel:
         S_sum = np.full(len(self.period), np.nan)
         I_sum = np.full(len(self.period), np.nan)
         R_sum = np.full(len(self.period), np.nan)
-        alpha_rec = np.full(len(self.period), np.nan)
+        alpha_rec = np.full(len(self.period), np.nan) # Radicalization rate per time step
 
         S_sum[0], I_sum[0], R_sum[0] = np.sum(S[:,0]), np.sum(I[:,0]), np.sum(R[:,0])
 
@@ -220,13 +220,13 @@ class SIRModel:
                 elit[t1] = elit[t] + self.mu_0*(self.w_0 - w_t)/w_t - (elit[t] - self.e_0)*R_sum[t]
             elit[t1] = np.clip(elit[t1], 0.0, 1.0)
 
-            w_t1 = self.wage_function(nat_res_local[t], elit[t1])
+            w_t1 = self.wage_function(nat_res_local[t], elit[t1]) # Wage for next period
             epsln[t1] = self.eps_factor * (1 - w_t1) / elit[t1]
 
             alpha = np.clip(
                 self.a_0 + self.a_w*(self.w_0 - w_t1) + self.a_e*(elit[t1] - self.e_0) + self.YB_A20[t1],
-                self.a_0, self.a_max
-            )
+                self.a_0, self.a_max)
+            
             alpha_rec[t1] = alpha
 
             sigma = np.clip((alpha - self.gamma*np.sum(R[:,t])) * np.sum(I[:,t]) + self.sigma_0, 0, 1)
@@ -462,8 +462,8 @@ class SIRModel:
         return data_tuple
 
 
+""" 
 ### Test Run
-
 model = SIRModel(
     pt_original=False,
     quick_adjust=False,
@@ -472,11 +472,10 @@ model = SIRModel(
     enable_SDT=True,
     verbose=False
 )
-
-# Compare with a resource shock at year=1960, magnitude=-.25
+# Compare with a resource shock 
 model.run_model()
 model.plot_results()
 model.compare_with_shock_on_one_plot('reduce_regen', 1960, -0.01)
 model.compare_with_shock_on_one_plot('resource', 1960, -0.25)
 model.compare_with_shock_on_one_plot('elite', 1960, 0.05)
-
+ """

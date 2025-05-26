@@ -9,11 +9,14 @@ import pandas as pd
 import seaborn as sns
 from ema_workbench import (Model, RealParameter, ScalarOutcome,
                            Policy, SequentialEvaluator, Scenario)
+from ema_workbench.em_framework.samplers import (
+    LHSSampler, sample_levers)
 from ema_workbench.analysis import parcoords
 from ema_workbench.analysis import prim
 from sklearn.decomposition import PCA
 from sklearn.cluster import AgglomerativeClustering
 from scipy.cluster.hierarchy import dendrogram, linkage
+import itertools
 
 from lblf_Policy_natural_resources import policySIRModel
 
@@ -99,8 +102,6 @@ uncertainty_df_numeric = uncertainty_df_numeric.dropna() # 19.65 % dropped
 uncertainty_df_numeric = uncertainty_df_numeric[uncertainty_df_numeric["final_resource"] >= 0]
 
 uncertainty_df_numeric.to_csv('EMA_Output_LeverRun.csv')
-# uncertainty_df_numeric = pd.read_csv("EMA_Output_LeverRun.csv")
-# uncertainty_df_numeric = uncertainty_df_numeric.drop(columns="Unnamed: 0")
 
 ### Renaming
 rename_map = {
@@ -133,8 +134,17 @@ rename_map = {
     "final_resource":            "Final Resource"
 }
 
-uncertainty_df_numeric = uncertainty_df_numeric.rename(columns=rename_map)
 ordered_cols = list(rename_map.values()) 
+
+base_df_numeric = pd.read_csv("EMA_Output_BaseRun.csv")
+#base_df_numeric = base_df_numeric.drop(columns="Unnamed: 0")
+base_df_numeric = base_df_numeric[base_df_numeric["final_resource"] >= 0] 
+
+uncertainty_df_numeric = pd.read_csv("EMA_Output_LeverRun.csv")
+#uncertainty_df_numeric = uncertainty_df_numeric.drop(columns="Unnamed: 0")
+uncertainty_df_numeric = uncertainty_df_numeric[uncertainty_df_numeric["final_resource"] >= 0] 
+
+uncertainty_df_numeric = uncertainty_df_numeric.rename(columns=rename_map)
 uncertainty_df_numeric = uncertainty_df_numeric[ordered_cols]
 
 base_df_numeric = base_df_numeric.rename(columns=rename_map)
@@ -145,6 +155,7 @@ base_df_numeric = base_df_numeric[ordered_cols]
 def plot_highlighted_experiments(
         df: pd.DataFrame,
         outcome_col: str,
+        global_limits: None,
         n: int = 20,                 # how many runs to highlight
         mode: str = "low",           # 'low' or 'high'
         color: str = "blue",
@@ -167,7 +178,10 @@ def plot_highlighted_experiments(
     else:
         raise ValueError("mode must be 'low' or 'high'")
 
-    limits = parcoords.get_limits(df)
+    if global_limits is None:
+        limits = parcoords.get_limits(df)
+    else:
+        limits = global_limits
 
     # random grey background sample
     bg = df.sample(background_sample, random_state=0) if len(df) > background_sample else df
@@ -224,10 +238,12 @@ def plot_highlighted_experiments(
 
 ## Parallel plots 
 
+global_limits = parcoords.get_limits(uncertainty_df_numeric)
+
 # Base
 
-plot_highlighted_experiments(base_df_numeric, "Peak Radicalization", n=1500, mode="low", color="blue")
-plot_highlighted_experiments(base_df_numeric, "Peak Radicalization", n=20, mode="high", color="red")
+plot_highlighted_experiments(base_df_numeric, "Peak Radicalization", global_limits = global_limits, n=2000, mode="low", color="blue")
+plot_highlighted_experiments(base_df_numeric, "Peak Radicalization", n=500, mode="high", color="red")
 
 plot_highlighted_experiments(base_df_numeric, "Final Radicalization", n=20, mode="low", color="blue")
 plot_highlighted_experiments(base_df_numeric, "Final Radicalization", n=20, mode="high", color="red")
@@ -244,7 +260,7 @@ plot_highlighted_experiments(base_df_numeric, "Final Resource", n=20, mode="high
 
 # Levers
 
-plot_highlighted_experiments(uncertainty_df_numeric, "Peak Radicalization", n=10000, mode="low", color="blue")
+plot_highlighted_experiments(uncertainty_df_numeric, "Peak Radicalization", global_limits = global_limits, n=2000, mode="low", color="blue")
 plot_highlighted_experiments(uncertainty_df_numeric, "Peak Radicalization", n=2000, mode="high", color="red")
 
 plot_highlighted_experiments(uncertainty_df_numeric, "Final Radicalization", n=20, mode="low", color="blue")
@@ -259,16 +275,146 @@ plot_highlighted_experiments(uncertainty_df_numeric, "Conservation Cost", n=20, 
 plot_highlighted_experiments(uncertainty_df_numeric, "Final Resource", n=20, mode="low", color="blue")
 plot_highlighted_experiments(uncertainty_df_numeric, "Final Resource", n=20, mode="high", color="red")
 
-# Pareto Frontier
+# Characterizing Successful Policies in Stay the Course
+
+uncertainty_cols = [
+    "Wage → Radicalization", "Elite → Radicalization",
+    "Resource Regeneration", "Extraction Rate", "De-radicalization Rate",
+    "Wage–Resource Exp.", "Conservation Effectiveness",
+    "Conservation Unit Cost", "Wage→Depletion Exp.",
+    "Elite Extraction Mult.", "Elite Mobility Rate", "Elite Proportion"
+]
+
+X = base_df_numeric[uncertainty_cols]
+success = (base_df_numeric["Peak Radicalization"] < 0.10).values
+fail = (base_df_numeric["Peak Radicalization"] > 0.90).values
+
+# Success
+prim_alg = prim.Prim(X, success, threshold=0.8)
+box      = prim_alg.find_box()
+
+box.show_tradeoff()
+plt.show()
+
+box.inspect(1)
+box.inspect(10)
+box.inspect(9)
+box.inspect(1, style="graph")
+plt.show()
+
+# Fail 
+prim_alg_f = prim.Prim(X, fail, threshold=0.8)
+box_f      = prim_alg_f.find_box()
+
+box_f.show_tradeoff()
+plt.show()
 
 
-# 2.  Pareto filter (minimise both columns) ------------------------
+box_f.inspect(1)
+box_f.inspect(5))
+box_f.inspect(10)
+box_f.inspect(30)
+box_f.inspect(60)
+box_f.inspect(1, style="graph")
+plt.show()
 
+# Successful policies
+
+uncertainty_cols_orig = [
+    "a_w",              # Wage → Radicalization
+    "a_e",              # Elite → Radicalization
+    "nat_res_regen",    # Resource Regeneration
+    "delta_extract",    # Extraction Rate
+    "delta",            # De-radicalization Rate
+    "alpha_w",          # Wage–Resource Exp.
+    "conservation_effectiveness",
+    "conservation_unit_cost",
+    "eta_deplet",       # Wage→Depletion Exp.
+    "mu_elite_extr",    # Elite Extraction Mult.
+    "mu_0",             # Elite Mobility Rate
+    "e_0"               # Elite Proportion
+]
+
+lever_cols = [
+    "Wage Target Sensitivity",
+    "Radical. Treshold Sensitivity",
+    "Target Wage",
+    "Radical Threshold",
+    "Conservation Effort"
+]
+
+failed_scenarios = base_df_numeric[base_df_numeric["max_radicalized"] > 0.9]
+
+def dataframe_to_scenarios(df: pd.DataFrame,
+                           cols: list[str],
+                           prefix: str = "fail") -> list[Scenario]:
+    """Turn each row of `df[cols]` into an EMA-Workbench Scenario."""
+    return [
+        Scenario(f"{prefix}_{i}", **row[cols].to_dict())
+        for i, row in df.iterrows()
+    ]
+
+failed_scenarios = dataframe_to_scenarios(failed_scenarios, uncertainty_cols_orig)
+
+with SequentialEvaluator(ema_model) as evaluator:
+    experiments_f, outcomes_f = evaluator.perform_experiments(
+        scenarios=failed_scenarios,
+        policies=25,
+    )
+
+experiments_f = pd.DataFrame.from_dict(experiments_f)
+outcomes_f = pd.DataFrame.from_dict(outcomes_f)
+fails_df = pd.concat([experiments_f, outcomes_f], axis=1)
+fails_df = fails_df.rename(columns=rename_map)
+fails_df = fails_df.select_dtypes(include=[float, int])
+fails_df = fails_df.replace([np.inf, -np.inf], np.nan)
+fails_df = fails_df.dropna()
+
+plot_highlighted_experiments(fails_df, "Peak Radicalization", n=2500, mode="low", color="blue")
+plot_highlighted_experiments(fails_df, "Peak Radicalization", n=1000, mode="high", color="red")
+
+X_crisis = fails_df[uncertainty_cols + lever_cols]
+y_crisis = (fails_df["Peak Radicalization"] < 0.10).values
+
+prim_alg_c = prim.Prim(X_crisis, y_crisis, threshold=0.8)
+box_c      = prim_alg_c.find_box()
+
+box_c.show_tradeoff()
+plt.show()
+
+box_c.inspect(1)
+box_c.inspect(3)
+box_c.inspect(5)
+box_c.inspect(10)
+box_c.inspect(15)
+box_c.inspect(30)
+plt.show()
+
+# What Drives Policy failure?
+
+X_crisis_f = fails_df[uncertainty_cols + lever_cols]
+y_crisis_f = (fails_df["Peak Radicalization"] > 0.90).values
+
+prim_alg_cf = prim.Prim(X_crisis_f, y_crisis_f, threshold=0.8)
+box_cf      = prim_alg_cf.find_box()
+
+box_cf.show_tradeoff()
+plt.show()
+
+box_cf.inspect(1)
+box_cf.inspect(3)
+box_cf.inspect(5)
+box_cf.inspect(10)
+box_cf.inspect(15)
+box_cf.inspect(30)
+plt.show()
+
+
+# Pareto Front
 uncertainty_df_numeric["Total Policy Cost"] = uncertainty_df_numeric["Wage Cost"] + uncertainty_df_numeric["Conservation Cost"] 
-
 objs = uncertainty_df_numeric[["Peak Radicalization", "Total Policy Cost"]].values
 
-# non-dominated mask: True if no other row is better on BOTH objectives
+
 is_pareto = np.ones(len(objs), dtype=bool)
 for i, (r1, c1) in enumerate(objs):
     if is_pareto[i]:
@@ -281,27 +427,6 @@ for i, (r1, c1) in enumerate(objs):
 uncertainty_df_numeric["pareto"] = np.where(is_pareto, "front", "dominated")
 
 # 3.  Plot ---------------------------------------------------------
-sns.set_style("whitegrid")
-
-plt.figure(figsize=(7, 5))
-sns.scatterplot(
-    data=uncertainty_df_numeric,
-    x="Total Policy Cost",
-    y="Peak Radicalization",
-    hue="pareto",
-    palette={"front": "red", "dominated": "grey"},
-    alpha=0.7,
-    s=40
-)
-
-plt.title("Pareto Front: Peak Radicalization vs Total Policy Cost")
-plt.xlabel("Total Policy Cost")
-plt.ylabel("Peak Radicalization")
-plt.legend(title="Status", loc="best")
-plt.tight_layout()
-plt.show()
-
-# red on top
 
 dom    = uncertainty_df_numeric[uncertainty_df_numeric.pareto == "dominated"]
 front  = uncertainty_df_numeric[uncertainty_df_numeric.pareto == "front"]
@@ -309,7 +434,6 @@ front  = uncertainty_df_numeric[uncertainty_df_numeric.pareto == "front"]
 sns.set_style("whitegrid")
 plt.figure(figsize=(7, 5))
 
-# 1️⃣  draw dominated points first  (grey, lower z-order)
 sns.scatterplot(
     data=dom,
     x="Total Policy Cost",
@@ -321,7 +445,6 @@ sns.scatterplot(
     zorder=1           # ↓ sits behind
 )
 
-# 2️⃣  overlay Pareto front  (red, higher z-order)
 sns.scatterplot(
     data=front,
     x="Total Policy Cost",
@@ -337,7 +460,6 @@ plt.title("Pareto Front: Peak Radicalization vs Total Policy Cost")
 plt.xlabel("Total Policy Cost")
 plt.ylabel("Peak Radicalization")
 
-# 3️⃣  move the legend outside, on the right
 plt.legend(
     title="Status",
     loc="upper left",
@@ -346,62 +468,4 @@ plt.legend(
 )
 
 plt.tight_layout()
-plt.show()
-
-
-### PRIM
-
-from ema_workbench.analysis import prim
-
-x = uncertainty_df_numeric.drop(columns=[
-    'max_radicalized', 
-    'final_radicalized', 
-    'wage_cost', 
-    'conservation_cost', 
-    'final_resource']
-
-# ['max_radicalized'] < 0.3
-y = uncertainty_df_numeric['max_radicalized'] < 0.3
-prim_alg = prim.Prim(x, y, threshold=0.8)
-box1 = prim_alg.find_box()
-box1.show_tradeoff()
-box1.inspect(1, style='table')
-box1.inspect(4, style='table')
-
-# ['wage_cost'] < 1
-y = uncertainty_df_numeric['wage_cost'] < 1
-prim_alg = prim.Prim(x, y, threshold=0.6)
-box1 = prim_alg.find_box()
-box1.show_tradeoff()
-box1.inspect(3, style='table')
-box1.inspect(9, style='table')
-
-# ['conservation_cost'] < 280
-y = uncertainty_df_numeric['conservation_cost'] < 255
-prim_alg = prim.Prim(x, y, threshold=0.6)
-box1 = prim_alg.find_box()
-box1.show_tradeoff()
-box1.inspect(1, style='table')
-box1.inspect(3, style='table')
-
-# ['final_resource'] > 1.8
-y = uncertainty_df_numeric['final_resource'] > 1.8
-prim_alg = prim.Prim(x, y, threshold=0.6)
-box1 = prim_alg.find_box()
-box1.show_tradeoff()
-box1.inspect(1, style='table')
-box1.inspect(45, style='table')
-
-
-### Feature Scoring
-from ema_workbench.analysis import feature_scoring
-
-outcome_columns = ['max_radicalized', 'final_radicalized', 'wage_cost', 'conservation_cost', 'final_resource']
-filtered_df = uncertainty_df_numeric.dropna(subset=outcome_columns)
-x_fs = filtered_df.drop(columns=outcome_columns, errors='ignore')
-y_fs = {col: filtered_df[col] for col in outcome_columns}
-fs = feature_scoring.get_feature_scores_all(x_fs, y_fs)
-
-sns.heatmap(fs, cmap="viridis", annot=True)
-plt.title("Feature Scoring Heatmap")
 plt.show()
