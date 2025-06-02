@@ -242,7 +242,7 @@ global_limits = parcoords.get_limits(uncertainty_df_numeric)
 
 # Base
 
-plot_highlighted_experiments(base_df_numeric, "Peak Radicalization", global_limits = global_limits, n=2000, mode="low", color="blue")
+plot_highlighted_experiments(base_df_numeric, "Peak Radicalization", global_limits = global_limits, n=1000, mode="low", color="blue")
 plot_highlighted_experiments(base_df_numeric, "Peak Radicalization", n=500, mode="high", color="red")
 
 plot_highlighted_experiments(base_df_numeric, "Final Radicalization", n=20, mode="low", color="blue")
@@ -309,9 +309,9 @@ box_f      = prim_alg_f.find_box()
 box_f.show_tradeoff()
 plt.show()
 
-
+box_list = np.linspace(1, 20, 5).astype(int)
 box_f.inspect(1)
-box_f.inspect(5))
+box_f.inspect(5)
 box_f.inspect(10)
 box_f.inspect(30)
 box_f.inspect(60)

@@ -7,14 +7,34 @@ library(prim)
 library(mco)            
 library(patchwork)      
 
-setwd("C:/Users/jrojasa/OneDrive - RAND Corporation/Looking Back to Look Forward/Code")
-# Read and clean data
-df <- read.csv("EMA_Output_LeverRun.csv")
-df <- df[, -1]
+# setwd("C:/Users/jrojasa/OneDrive - RAND Corporation/Looking Back to Look Forward/Code")
+setwd("/Users/javier/lblf")
 
-df <- df %>% filter(final_resource > 0) %>% drop_na()
+# Cautious Interventions
 
-# df %>% write_csv("EMA_Output_Expanded_RSet.csv")
+df <- read.csv("EMA_Output_LeverRun_Static.csv")
+df <- df %>% rename(index = X)
+
+rad_df <- read.csv("Radical_LeverRun_Static.csv")
+rad_df <- rad_df %>% rename(index = X)
+rad_df <- rad_df %>% rowwise() %>%
+  mutate(row_mean = mean(c_across(-index), na.rm = TRUE)) %>%
+  ungroup() 
+
+rad_stats <- rad_df %>%
+  summarise(
+    base_mean_rad = mean(row_mean, na.rm = TRUE),
+    base_sd_rad   = sd(row_mean, na.rm = TRUE)
+  )
+
+base_threshold <- rad_stats$base_mean_rad + 1.64 * rad_stats$base_sd_rad
+
+rad_df <- rad_df %>%
+  mutate(Rad_count = rowSums(across(-c(index, row_mean), ~ . > base_threshold), na.rm = TRUE))
+
+rad_df <- rad_df %>% select(index, Rad_count)
+
+df <- df %>% left_join(rad_df, by = "index")
 
 # Scatter plot
 
@@ -30,32 +50,39 @@ ggplot(df, aes(x = conservation_cost, y = max_radicalized, fill = conservation_e
   ) +
   theme_minimal(base_size = 13)
 
-
 # Renaming
+
 rename_map <- c(
-  a_w                         = "Wage → Radicalization",
-  a_e                         = "Elite → Radicalization",
-  nat_res_regen              = "Resource Regeneration",
-  delta_extract              = "Extraction Rate",
-  delta                      = "De-radicalization Rate",
-  alpha_w                    = "Wage–Resource Exp.",
+  # Uncertainties
+  a_w = "Wage → Radicalization",
+  a_e = "Elite → Radicalization",
+  nat_res_regen = "Resource Regeneration",
+  delta_extract = "Extraction Rate",
+  delta = "De-radicalization Rate",
+  alpha_w = "Wage–Resource Exp.",
   conservation_effectiveness = "Conservation Effectiveness",
-  conservation_unit_cost     = "Conservation Unit Cost",
-  eta_deplet                 = "Wage→Depletion Exp.",
-  mu_elite_extr              = "Elite Extraction Mult.",
-  mu_0                       = "Elite Mobility Rate",
-  e_0                        = "Elite Proportion",
-  eta_w                      = "Wage Target Sensitivity",
-  eta_a                      = "Elite Treshold Sensitivity",
-  w_T                        = "Target Wage",
-  I_Ta                       = "Radical Threshold",
-  conservation_effort        = "Conservation Effort",
-  max_radicalized            = "Peak Radicalization",
-  final_radicalized          = "Final Radicalization",
-  wage_cost                  = "Wage Cost",
-  conservation_cost          = "Conservation Cost",
-  final_resource             = "Final Resource",
-  total_policy_cost          = "Total Policy Cost"
+  conservation_unit_cost = "Conservation Unit Cost",
+  eta_deplet = "Wage→Depletion Exp.",
+  mu_elite_extr = "Elite Extraction Mult.",
+  mu_0 = "Elite Mobility Rate",
+  e_0 = "Elite Proportion",
+  
+  # Levers
+  eta_w = "Wage Target Sensitivity",
+  eta_a = "Radical. Treshold Sensitivity",
+  w_T = "Target Wage",
+  I_Ta = "Radical Threshold",
+  conservation_effort = "Conservation Effort",
+  R_star = "Resource Floor Target",
+  
+  # Measures
+  max_radicalized = "Peak Radicalization",
+  final_radicalized = "Final Radicalization",
+  wage_cost = "Wage Cost",
+  conservation_cost = "Conservation Cost",
+  final_resource = "Final Resource",
+  total_policy_cost = "Total Policy Cost",
+  Rad_count = "Over-Radicalization Periods"
 )
 
 df <- df %>% rename(!!!set_names(names(rename_map), rename_map))
