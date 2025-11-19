@@ -1,0 +1,211 @@
+# Model Parameters Configuration
+# All values based on peer-reviewed literature
+
+# Age-structured population parameters
+population:
+  T_ages: 45  # Number of age classes
+  population_size: 1.0  # Normalized total population
+
+# Initial conditions
+initial_conditions:
+  I_total: 0.05  # Total initial radicalized fraction
+  R_total: 0.0  # Total initial recovered/moderate fraction
+  beta: 4.0  # Initial capital/income ratio (400% - Piketty 2014)
+  elit: 0.01  # Initial elite fraction (1% - Turchin 2016)
+  damage: 0.01  # Initial climate damage (1% GDP)
+  trust: 0.45  # Initial institutional trust (Uslaner 2002)
+  temperature: 1.0  # Initial temperature anomaly (°C)
+  debt_ratio: 0.5  # Initial debt/GDP ratio
+
+# SIR-type radicalization parameters
+radicalization:
+  sigma_0: 0.0005  # Base spontaneous radicalization rate/year
+  a_0: 0.1  # Base radicalization propensity
+  a_max: 1.0  # Maximum fraction that can radicalize
+  a_e: 50.0  # How radicalization changes as relative elite numbers change from expected
+  gamma: 1.0  # Moderating effect of recovered
+  delta: 0.5  # De-radicalization rate
+  tau: 10  # Time delay for recovery (years)
+  a_inequality: 1.0  # Strength of inequality effect
+  alpha_d: 0.3  # Climate damage effect on radicalization
+
+# Economic parameters (Piketty 2014)
+economic:
+  savings_rate: 0.12  # Savings rate (s)
+  return_on_capital: 0.05  # Return on capital (r = 5% annually)
+  growth_rate_base: 0.03  # Base economic growth (g = 3% annually)
+  alpha: 0.3  # Capital share of income\
+  damage_growth_multiplier: 0.5  # Damage effect on growth
+
+# Elite dynamics (Turchin 2016)
+elite:
+  lambda_elit: 0.1  # Elite entry rate when r>g
+  mu_elit: 0.02  # Elite exit rate (downward mobility)
+  e_0: 0.01  # Expected/equilibrium elite proportion
+  sigma_elit: 0.1  # Elite sensitivity to climate
+
+# Inequality parameters
+inequality:
+  gini_baseline: 0.30  # Baseline Gini coefficient
+  gini_threshold: 0.35  # Threshold for unrest (Østby 2008)
+  beta_weight: 0.6  # Weight for β-based Gini estimate
+  elite_weight: 0.4  # Weight for elite-based Gini estimate
+  gini_logit_slope: 1.0  # Slope for logit transformation
+  gini_min: 0.25  # Minimum realistic Gini
+  gini_max: 0.70  # Maximum realistic Gini
+  inequality_exponent: 1.6  # Convexity of inequality effect
+
+# Climate parameters
+climate:
+  kappa_adaptation: 0.6  # Adaptation effectiveness
+  emissions_rate: 0.02  # Annual emissions growth
+  mitigation_cost: 0.01  # Cost of mitigation (fraction of GDP)
+  
+  # Damage function coefficients
+  damage_functions:
+    nordhaus_coeff: 0.00236  # DICE model quadratic coefficient
+    meta_coeff: 0.00357  # Meta-analysis quadratic coefficient
+    hsiang_linear: 0.01  # Hsiang et al. linear term
+    hsiang_nonlinear: 0.003  # Hsiang et al. nonlinear coefficient
+    hsiang_exponent: 2.3  # Hsiang et al. nonlinear exponent
+    
+  # Damage function weights
+  damage_weights:
+    nordhaus: 0.2  # Conservative DICE estimate
+    meta: 0.5  # Meta-analysis central estimate
+    hsiang: 0.3  # Empirical nonlinearities
+    
+  # Damage dynamics
+  damage_cap: 0.5  # Maximum damage as fraction of GDP
+  damage_adjustment_rate: 0.2  # Speed of damage adjustment
+  emissions_damage_feedback: 0.2  # Economic damage reduces emissions
+
+# Political Stress Index (PSI) parameters
+political_stress:
+  I_threshold: 0.01  # Baseline radicalized fraction
+  e_threshold: 0.01  # Baseline elite fraction
+  debt_baseline: 0.2  # Baseline debt ratio
+  psi_effect: 0.5  # Polarization effect on policy effectiveness
+  
+  # PSI slopes
+  mmp_radicals: 0.75  # How radicals raise MMP
+  mmp_ineq: 1.0  # How Gini raises MMP
+  emp_slope: 0.5  # How elites raise EMP
+  sfd_trust: 0.5  # How low trust raises SFD
+  sfd_debt: 0.5  # How high debt raises SFD
+  psi_component_cap: 5.0  # Cap for PSI components
+
+# Trust parameters
+trust:
+  omega_beta: 0.04  # Trust erosion from inequality
+  omega_damage: 0.05  # Trust erosion from climate damage
+  omega_I: 0.08  # Trust erosion from radicalization
+  theta: 0.04  # Trust building rate
+  baseline_trust_building: 0.2  # Baseline trust-building multiplier
+  min_trust: 0.0  # Minimum trust level
+  max_trust: 1.0  # Maximum trust level
+
+# Policy effectiveness parameters
+policy:
+  implementation_threshold: 1.0 
+  # Baseline - no policy effects
+  base_effects:
+    emissions_mult: 1.0        # No change to emissions
+    savings_mult: 1.0          # No change to savings
+    elite_lambda_mult: 1.0     # No change to elite extraction
+    delta_mult: 1.0            # No change to productivity/adaptation
+    trust_theta_mult: 1.0      # No change to social trust building
+    revenue: 0.0               # No revenue generated
+    spending: 0.0              # No spending required
+    net_budget: 0.0            # No budget impact
+  
+  # Carbon tax policy
+  carbon_tax:
+    emissions_reduction: 0.3   # 30% emissions reduction at full implementation
+    revenue_rate: 0.02         # Revenue per unit of beta (wealth concentration)
+    
+  # Wealth tax policy
+  wealth_tax:
+    savings_reduction: 0.2     # 20% reduction in elite savings
+    elite_lambda_reduction: 0.3  # 30% reduction in elite accumulation
+    revenue_base: 0.015        # Base revenue as fraction of economy
+    
+  # Social programs policy
+  social_programs:
+    delta_boost: 0.1           # 10% boost to adaptation/productivity
+    trust_theta_boost: 0.5     # 50% boost to trust building
+    spending_rate: 0.03        # 3% of GDP spending
+
+# Adaptive policy parameters
+adaptive_policy:
+  # Policy targets (desired equilibrium)
+  targets:
+    inequality: 0.3
+    radicalization: 0.05
+    emissions: 0.2
+    trust: 0.7
+    debt_ratio: 0.6
+    temperature: 1.5
+    
+  # Crisis thresholds
+  crisis_thresholds:
+    inequality: 0.5
+    radicalization: 0.3
+    emissions: 0.8
+    trust: 0.3
+    debt_ratio: 0.9
+    temperature: 3.0
+    
+  # Policy ramp rates
+  ramp_rates:
+    carbon_tax:
+      base: 0.01
+      max: 0.05
+      trigger: temperature
+    wealth_tax:
+      base: 0.005
+      max: 0.03
+      trigger: inequality
+    social_programs:
+      base: 0.02
+      max: 0.06
+      trigger: radicalization
+    education:
+      base: 0.015
+      max: 0.04
+      trigger: radicalization
+    adaptation:
+      base: 0.01
+      max: 0.04
+      trigger: temperature
+      
+  # Adjustment parameters
+  adjustment_speed: 0.3  # Policy adjustment inertia
+  
+  # Fiscal parameters
+  fiscal:
+    base_tax_rate: 0.25
+    max_debt_ratio: 1.0
+    fiscal_multiplier: 1.2
+    social_program_cost_rate: 0.03
+    education_cost_rate: 0.02
+    adaptation_cost_rate: 0.025
+    carbon_tax_max_rate: 0.02
+    wealth_tax_max_rate: 0.015
+    synergy_bonus: 0.1
+    debt_crisis_threshold: 0.9
+    fiscal_space_threshold: 0.3
+
+# System thresholds for metrics
+thresholds:
+  trust_collapse: 0.2  # Trust crisis level
+  radicalization_tipping: 0.2  # Radicalization tipping point
+  temperature_2C: 2.0  # 2°C warming threshold
+
+# Simulation settings
+simulation:
+  show_SIR_variation: false
+  enable_youth_bulge: false
+  youth_bulge:
+    age_factor: 0.2
+    YB_year: 0  # 0 = disabled
