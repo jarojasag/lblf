@@ -30,7 +30,7 @@ Robert Lempert · Zora Kovacic · Daniel Hoyer · Steven Popper · Jonathan Lamb
 **Lead Modeller:** Javier Rojas  
 
 ## 📂 Repository Structure
-
+```
 ├── main.py # Main deterministic simulation routine
 ├── core_model.py # Integrated system model (climate–inequality–radicalization)
 ├── adaptive_policy_system.py # Trigger-based adaptive policy engine
@@ -39,7 +39,7 @@ Robert Lempert · Zora Kovacic · Daniel Hoyer · Steven Popper · Jonathan Lamb
 ├── parameters.py # Loader and schema for config.yml
 ├── config.yml # Parameter file based on literature values
 └── utils.py # Math helpers (logit, clipping, interpolation)
-
+```
 
 ## ▶️ How the Main Routine Works (`main.py`)
 
