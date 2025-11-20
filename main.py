@@ -9,7 +9,6 @@ import warnings
 warnings.filterwarnings('ignore')
 
 from core_model import CoreClimateInequalityModel
-from adaptive_policy_system import AdaptivePolicyModel
 from visualization import (
     plot_results,
     plot_scenario_comparison

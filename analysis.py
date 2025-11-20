@@ -2,7 +2,6 @@ import numpy as np
 import pandas as pd
 from typing import Dict, List, Any
 from core_model import CoreClimateInequalityModel
-from adaptive_policy_system import AdaptivePolicyModel
 
 def calculate_metrics(model) -> Dict[str, Any]:
     """Calculate key metrics from simulation results"""
